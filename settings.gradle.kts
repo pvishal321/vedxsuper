@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "VedxSuper"
+rootProject.name = "vedxsuper"
 include(":app")

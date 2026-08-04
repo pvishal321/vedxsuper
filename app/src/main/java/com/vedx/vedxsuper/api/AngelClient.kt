@@ -43,15 +43,26 @@ class AngelClient {
         .create(AngelApi::class.java)
     
     var token: String = ""
-    
+    var isPaperTrading: Boolean = true // FORCE PAPER TRADING
+
     suspend fun login(c: String, p: String, t: String): Boolean {
         val r = api.login(LoginReq(c, p, t))
         return if (r.isSuccessful) { token = r.body()?.token ?: return false; true } else false
     }
     
-    suspend fun buy(sym: String, tok: String, qty: Int, price: Double, sl: Double) = 
-        api.order(OrderReq("NORMAL", sym, tok, "BUY", "NFO", "MARKET", "INTRADAY", "DAY", price.toString(), "0", sl.toString(), qty.toString()))
+    suspend fun buy(sym: String, tok: String, qty: Int, price: Double, sl: Double): Response<OrderResp>? {
+        if (isPaperTrading) {
+            android.util.Log.i("AngelClient", "PAPER BUY: $sym @ $price")
+            return null
+        }
+        return api.order(OrderReq("NORMAL", sym, tok, "BUY", "NFO", "MARKET", "INTRADAY", "DAY", price.toString(), "0", sl.toString(), qty.toString()))
+    }
     
-    suspend fun sell(sym: String, tok: String, qty: Int, price: Double, sl: Double) = 
-        api.order(OrderReq("NORMAL", sym, tok, "SELL", "NFO", "MARKET", "INTRADAY", "DAY", price.toString(), "0", sl.toString(), qty.toString()))
+    suspend fun sell(sym: String, tok: String, qty: Int, price: Double, sl: Double): Response<OrderResp>? {
+        if (isPaperTrading) {
+            android.util.Log.i("AngelClient", "PAPER SELL: $sym @ $price")
+            return null
+        }
+        return api.order(OrderReq("NORMAL", sym, tok, "SELL", "NFO", "MARKET", "INTRADAY", "DAY", price.toString(), "0", sl.toString(), qty.toString()))
+    }
 }

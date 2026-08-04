@@ -3,49 +3,35 @@ package com.vedx.vedxsuper.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vedx.vedxsuper.VedxApp
-import com.vedx.vedxsuper.core.RealBacktestEngine
-import com.vedx.vedxsuper.core.UltraNeuralCore
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class BacktestVM : ViewModel() {
-    private val core = UltraNeuralCore(com.vedx.vedxsuper.data.Symbol("NIFTY"))
-    private val engine = RealBacktestEngine(core)
-    
-    val result = MutableStateFlow<RealBacktestEngine.BacktestResult?>(null)
-    val loading = MutableStateFlow(false)
-    val logs = MutableStateFlow(listOf<String>())
-    
-    fun runAngelBacktest(token: String, days: Int = 5) = viewModelScope.launch {
-        loading.value = true
-        logs.value += "Fetching Angel One data (last $days days)..."
-        try {
-            val res = engine.runAngelBacktest(token, days)
-            result.value = res
-            logs.value += "✅ Done! Trades: ${res.totalTrades} | Win%: ${"%.1f".format(res.winRate)} | P&L: ₹${"%.0f".format(res.netPnl)}"
-        } catch (e: Exception) {
-            logs.value += "❌ Error: ${e.message}"
+data class BacktestResult(
+    val totalTrades: Int = 0,
+    val winRate: Float = 0f,
+    val totalPnL: Long = 0,
+    val maxDrawdown: Long = 0,
+    val sharpeRatio: Float = 0f
+)
+
+class BacktestViewModel : ViewModel() {
+    private val app = VedxApp.instance
+    private val db = app.appDatabase
+    private val settingsManager = app.settingsManager
+
+    private val _result = MutableStateFlow(BacktestResult())
+    val result: StateFlow<BacktestResult> = _result.asStateFlow()
+
+    fun runBacktest(symbol: String, days: Int) {
+        viewModelScope.launch {
+            // TODO: Implement actual backtest using historical candles from DB
+            _result.value = BacktestResult(
+                totalTrades = 0,
+                winRate = 0f,
+                totalPnL = 0,
+                maxDrawdown = 0,
+                sharpeRatio = 0f
+            )
         }
-        loading.value = false
-    }
-    
-    fun runNseBacktest() = viewModelScope.launch {
-        loading.value = true
-        logs.value += "Fetching NSE Bhavcopy..."
-        try {
-            val res = engine.runNseBacktest()
-            result.value = res
-            logs.value += "✅ Done! Trades: ${res.totalTrades} | Win%: ${"%.1f".format(res.winRate)}"
-        } catch (e: Exception) {
-            logs.value += "❌ Error: ${e.message}"
-        }
-        loading.value = false
-    }
-    
-    fun runCustom(csvText: String) = viewModelScope.launch {
-        loading.value = true
-        logs.value += "Parsing custom data..."
-        loading.value = false
     }
 }

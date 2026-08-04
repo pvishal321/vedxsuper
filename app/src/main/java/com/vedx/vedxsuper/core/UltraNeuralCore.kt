@@ -8,6 +8,102 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
+// ===== ULTRA-FAST SUPER TREND CALCULATOR =====
+class FastST(private val multiplier: Float) {
+    private var prevClose = 0.0
+    private var prevUpper = Double.MAX_VALUE
+    private var prevLower = 0.0
+    private var prevTrend: Byte = 1
+    
+    fun reset() {
+        prevClose = 0.0; prevUpper = Double.MAX_VALUE; prevLower = 0.0; prevTrend = 1
+    }
+    
+    fun calculate(candles: List<Candle>): STResult? {
+        if (candles.size < 11) return null
+        val atr = calcATR(candles, 10)
+        val close = candles.last().close.rupees
+        val mid = (candles.last().high.rupees + candles.last().low.rupees) / 2.0
+        val upper = mid + multiplier * atr
+        val lower = mid - multiplier * atr
+        
+        val newUpper = if (close > prevUpper) upper else min(upper, prevUpper)
+        val newLower = if (close < prevLower) lower else max(lower, prevLower)
+        val trend = if (close > prevUpper) 1 else if (close < prevLower) (-1).toByte() else prevTrend
+        
+        prevClose = close; prevUpper = newUpper; prevLower = newLower; prevTrend = trend
+        return STResult(if (trend == 1.toByte()) newLower else newUpper, newUpper, newLower, trend, atr)
+    }
+    
+    private fun calcATR(candles: List<Candle>, period: Int): Double {
+        var sum = 0.0
+        val start = max(1, candles.size - period)
+        for (i in start until candles.size) {
+            val c = candles[i]; val p = candles[i-1]
+            val tr1 = c.high.rupees - c.low.rupees
+            val tr2 = abs(c.high.rupees - p.close.rupees)
+            val tr3 = abs(c.low.rupees - p.close.rupees)
+            sum += max(tr1, max(tr2, tr3))
+        }
+        return sum / (candles.size - start).coerceAtLeast(1)
+    }
+}
+
+// ===== MULTI-BAND ENGINE =====
+class MultiBandEngine {
+    private val engines = arrayOf(FastST(2f), FastST(3f), FastST(4f), FastST(5f), FastST(6f), FastST(7f), FastST(8f))
+    private val master = FastST(3f)
+    
+    fun calculate(candles: List<Candle>): MultiST? {
+        if (candles.size < 15) return null
+        val results = engines.map { it.calculate(candles) ?: return null }
+        val m = master.calculate(candles) ?: return null
+        return MultiST(results[0], results[1], results[2], results[3], results[4], results[5], results[6], m)
+    }
+    
+    fun reset() { engines.forEach { it.reset() }; master.reset() }
+}
+
+// ===== CANDLE BUILDER (Ring buffer based) =====
+class FastCandleBuilder(private val intervalMin: Int) {
+    private val ticks = TickRingBuffer(2048)
+    private val _candles = MutableStateFlow<List<Candle>>(emptyList())
+    val candles = _candles.asStateFlow()
+    private var currentOpen = 0
+    private var currentHigh = 0
+    private var currentLow = Int.MAX_VALUE
+    private var currentVol = 0L
+    private var candleStart = 0L
+    private var lastClose = 0
+    
+    fun onTick(priceCents: Int, volume: Int, timestamp: Long) {
+        ticks.push(priceCents, volume, timestamp, 0)
+        if (candleStart == 0L) { candleStart = timestamp; currentOpen = priceCents }
+        val intervalMs = intervalMin * 60_000L
+        if (timestamp - candleStart >= intervalMs) {
+            closeCandle()
+            candleStart = timestamp
+            currentOpen = priceCents
+            currentHigh = priceCents
+            currentLow = priceCents
+            currentVol = volume.toLong()
+        } else {
+            if (priceCents > currentHigh) currentHigh = priceCents
+            if (priceCents < currentLow) currentLow = priceCents
+            currentVol += volume
+        }
+        lastClose = priceCents
+    }
+    
+    private fun closeCandle() {
+        val c = Candle(Price(currentOpen), Price(currentHigh), Price(currentLow), Price(lastClose), currentVol, candleStart, true)
+        _candles.value = _candles.value + c
+        if (_candles.value.size > 500) _candles.value = _candles.value.takeLast(300)
+    }
+    
+    fun initialize(history: List<Candle>) { _candles.value = history }
+}
+
 // ===== ENHANCED AI CORE - 7 ST MATCH STRATEGY =====
 class UltraNeuralCore(private val indexSymbol: Symbol) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -24,10 +120,7 @@ class UltraNeuralCore(private val indexSymbol: Symbol) {
     private class OptState(
         val candles: FastCandleBuilder = FastCandleBuilder(15),
         val st: MultiBandEngine = MultiBandEngine(),
-        var lastLtp: Double = 0.0,
-        var peakPrice: Double = 0.0,
-        var entryPrice: Double = 0.0,
-        var active: Boolean = false
+        var lastLtp: Double = 0.0
     )
     private val options = ConcurrentHashMap<String, OptState>()
     
@@ -42,6 +135,8 @@ class UltraNeuralCore(private val indexSymbol: Symbol) {
     private var exposure = 0.0
     private val weights = AIWeights()
     
+    val lossCount: Int get() = consecutiveLosses
+
     init {
         scope.launch { for (t in indexChannel) processIndex(t) }
         scope.launch { for ((t, ip) in optionChannel) processOption(t, ip) }

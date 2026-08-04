@@ -1,6 +1,6 @@
 package com.vedx.vedxsuper.stream
 
-import com.vedx.vedxsuper.core.UltraNeuralCore
+import com.vedx.vedxsuper.core.UltraNeuralCore // ✅ CHANGED from NeuralCore
 import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 class FastTickEngine(
     private val token: String,
     private val clientCode: String,
-    private val core: UltraNeuralCore,
+    private val core: UltraNeuralCore, // ✅ CHANGED
     private val scope: CoroutineScope
 ) {
     private val client = OkHttpClient.Builder()
@@ -55,12 +55,12 @@ class FastTickEngine(
         if (data.size < 20) return
         val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
         val mode = buf.get().toInt()
-        // val exchange = buf.get().toInt() // Unused but present in byte stream
-        buf.get() // Skip exchange
+        // val exchange = buf.get().toInt() // Skip exchange
+        buf.get()
         val tokenLen = buf.get().toInt()
         if (data.size < 3 + tokenLen + 4) return
-        val tokenBytes = ByteArray(tokenLen).also { buf.get(it) }
-        val tokenStr = String(tokenBytes)
+        val token = ByteArray(tokenLen).also { buf.get(it) }
+        val tokenStr = String(token)
         
         val ltp = when(mode) {
             1 -> buf.getInt() / 100.0

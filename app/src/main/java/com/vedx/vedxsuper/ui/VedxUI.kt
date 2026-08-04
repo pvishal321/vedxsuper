@@ -26,13 +26,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vedx.vedxsuper.VedxApp
-import com.vedx.vedxsuper.core.*
 import com.vedx.vedxsuper.data.*
 import com.vedx.vedxsuper.stream.FastTickEngine
+import com.vedx.vedxsuper.broker.SecureTokenManager
+import com.vedx.vedxsuper.auth.BiometricAuthManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
+import androidx.navigation.NavHostController
+import com.vedx.vedxsuper.utils.SettingsManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.util.*
+import kotlin.math.abs
 
 // ===== COLORS (Ultra Light White Theme) =====
 object AppColors {
@@ -53,129 +59,30 @@ object AppColors {
     val Purple = Color(0xFF8B5CF6)
 }
 
-// ===== VIEW MODEL =====
-class VedxVM : ViewModel() {
-    val app = VedxApp.instance
-    val signals = app.core.signals
-    val logs = MutableStateFlow(listOf<String>())
-    val isConnected = MutableStateFlow(true)
-    val indexPrice = MutableStateFlow(0.0)
-    val pnl = MutableStateFlow(0.0)
-    
-    init {
-        viewModelScope.launch {
-            while (true) {
-                indexPrice.value = app.core.getIndexPrice()
-                isConnected.value = true
-                delay(1000)
-            }
-        }
-    }
-    
-    fun login(c: String, p: String, t: String) = viewModelScope.launch {
-        logs.value = logs.value + "Logging in..."
-        if (app.client.login(c, p, t)) {
-            app.getSharedPreferences("v", 0).edit()
-                .putString("tok", app.client.token)
-                .putString("cc", c).apply()
-            
-            app.engine = FastTickEngine(app.client.token, c, app.core, app.scope)
-            app.startService()
-            
-            logs.value = logs.value + "Success!"
-        } else logs.value = logs.value + "Failed"
-    }
-    
-    fun emergency() {
-        app.risk.reset(); app.core.emergencyStop()
-        logs.value = logs.value + "STOPPED"
-    }
-}
-
-// ===== ROOT =====
+// ===== ROOT COMPOSABLE (Entry Point) =====
 @Composable
 fun VedxRoot(vm: VedxVM = viewModel()) {
-    val tok = remember { VedxApp.instance.getSharedPreferences("v", 0).getString("tok", null) }
-    var screen by remember { mutableStateOf(if (tok != null) "main" else "login") }
-    when (screen) {
-        "login" -> LoginScreen { screen = "main" }
-        "main" -> MainScreen(vm)
-    }
-}
-
-// ===== LOGIN SCREEN (Clean White) =====
-@Composable
-fun LoginScreen(onDone: () -> Unit) {
-    var code by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-    var totp by remember { mutableStateOf("") }
-    val vm: VedxVM = viewModel()
-    
-    Box(Modifier.fillMaxSize().background(AppColors.White), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier.widthIn(max = 360.dp).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                Modifier.size(72.dp).clip(CircleShape).background(AppColors.Blue),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("V", color = AppColors.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("VedxSuper", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-            Text("AI Trading Intelligence", fontSize = 14.sp, color = AppColors.TextSecondary)
-            Spacer(Modifier.height(40.dp))
-            
-            AppInput(code, { code = it }, "Client Code", Icons.Default.AccountCircle)
-            Spacer(Modifier.height(12.dp))
-            AppInput(pass, { pass = it }, "Password", Icons.Default.Lock, true)
-            Spacer(Modifier.height(12.dp))
-            AppInput(totp, { totp = it }, "TOTP Code", Icons.Default.Lock)
-            Spacer(Modifier.height(24.dp))
-            
-            Button(
-                onClick = { vm.login(code, pass, totp); onDone() },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Blue)
-            ) {
-                Text("CONNECT BROKER", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-            
-            Spacer(Modifier.height(16.dp))
-            Text("Secure connection to Angel One", fontSize = 11.sp, color = AppColors.TextMuted)
-        }
-    }
+    // This is the old entry point, kept for compatibility if needed
+    // But MainActivity now calls VedxApp (the Composable)
 }
 
 @Composable
-fun AppInput(value: String, onChange: (String) -> Unit, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isPass: Boolean = false) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label, fontSize = 13.sp) },
-        leadingIcon = { Icon(icon, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = AppColors.Blue,
-            unfocusedBorderColor = AppColors.Border
-        ),
-        visualTransformation = if (isPass) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None
-    )
-}
-
-// ===== MAIN SCREEN (Bottom Nav) =====
-@Composable
-fun MainScreen(vm: VedxVM) {
+fun DashboardScreen(
+    marketViewModel: MarketViewModel,
+    backtestViewModel: BacktestViewModel,
+    dashboardViewModel: DashboardViewModel,
+    settingsViewModel: SettingsViewModel,
+    tradeViewModel: TradeViewModel,
+    historyViewModel: HistoryViewModel,
+    navController: NavHostController,
+    settingsManager: SettingsManager
+) {
     var tab by remember { mutableIntStateOf(0) }
     val items = listOf(
         "Home" to Icons.Default.Home,
         "Watch" to Icons.Default.Search,
         "Trades" to Icons.AutoMirrored.Filled.List,
-        "Backtest" to Icons.Default.Refresh,
+        "Backtest" to Icons.Default.Build,
         "Settings" to Icons.Default.Settings
     )
     
@@ -209,20 +116,22 @@ fun MainScreen(vm: VedxVM) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> HomeTab(vm)
-                1 -> WatchTab(vm)
-                2 -> TradesTab(vm)
-                3 -> BacktestTab()
-                4 -> SettingsTab(vm)
+                0 -> HomeTab(marketViewModel)
+                1 -> WatchTab(marketViewModel)
+                2 -> TradesTab(tradeViewModel)
+                3 -> BacktestTab(backtestViewModel)
+                4 -> SettingsTab(settingsViewModel)
             }
         }
     }
 }
 
-// ===== HOME TAB (Premium Dashboard) =====
+// ===== HOME TAB =====
 @Composable
-fun HomeTab(vm: VedxVM) {
-    val price by vm.indexPrice.collectAsState()
+fun HomeTab(vm: MarketViewModel) {
+    val indexData by vm.indexData.collectAsState()
+    val nifty = indexData.find { it.symbol == "NIFTY" }
+    val price = nifty?.price ?: 0.0
     val signals by vm.signals.collectAsState(initial = emptyList())
     val lastSignal = signals.lastOrNull()
     
@@ -265,7 +174,9 @@ fun HomeTab(vm: VedxVM) {
                 lastSignal?.let { sig ->
                     val isBuy = sig.action == Actions.BUY
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().clickable { 
+                            vm.onSignalReceived(sig.symbol.value, if(isBuy) "BUY" else "SELL", sig.entryPrice.rupees, sig.stopLoss.rupees, sig.target.rupees, sig.confidence.pct, sig.reason)
+                        },
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isBuy) AppColors.GreenLight else AppColors.RedLight
@@ -280,8 +191,8 @@ fun HomeTab(vm: VedxVM) {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        if (isBuy) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        null,
+                                        imageVector = if (isBuy) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
                                         tint = AppColors.White,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -395,16 +306,10 @@ fun SignalRow(sig: Signal) {
     }
 }
 
-// ===== WATCH TAB (Market Overview) =====
+// ===== WATCH TAB =====
 @Composable
-fun WatchTab(vm: VedxVM) {
-    val price by vm.indexPrice.collectAsState()
-    val indices = listOf(
-        Triple("NIFTY 50", price, true),
-        Triple("BANKNIFTY", price * 2.15, true),
-        Triple("FINNIFTY", price * 0.85, false),
-        Triple("SENSEX", price * 3.2, false)
-    )
+fun WatchTab(vm: MarketViewModel) {
+    val indices by vm.indexData.collectAsState()
     
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         item { Spacer(Modifier.height(12.dp)) }
@@ -413,10 +318,7 @@ fun WatchTab(vm: VedxVM) {
             Spacer(Modifier.height(12.dp))
         }
         items(indices) { itemData ->
-            val name = itemData.first
-            val p = itemData.second
-            val isLive = itemData.third
-            IndexCard(name, p, isLive)
+            IndexCard(itemData.symbol, itemData.price, true)
             Spacer(Modifier.height(8.dp))
         }
         item { Spacer(Modifier.height(20.dp)) }
@@ -446,16 +348,18 @@ fun IndexCard(name: String, price: Double, isLive: Boolean) {
     }
 }
 
-// ===== TRADES TAB (Journal) =====
+// ===== TRADES TAB =====
 @Composable
-fun TradesTab(vm: VedxVM) {
-    val logs by vm.logs.collectAsState()
-    val stats = remember { VedxApp.instance.risk.stats() }
+fun TradesTab(vm: TradeViewModel) {
+    val balance by vm.balance.collectAsState()
+    val totalPnL by vm.totalPnL.collectAsState()
+    val openTrades by vm.openTrades.collectAsState()
+    val history by vm.tradeHistory.collectAsState()
     
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         item { Spacer(Modifier.height(12.dp)) }
         item {
-            Text("Trade Journal", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+            Text("Virtual Wallet", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
             Spacer(Modifier.height(12.dp))
         }
         
@@ -467,80 +371,156 @@ fun TradesTab(vm: VedxVM) {
                 border = BorderStroke(1.dp, AppColors.Border)
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Today's Stats", fontSize = 13.sp, color = AppColors.TextSecondary, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(8.dp))
-                    Text(stats, fontSize = 14.sp, color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("Current Balance", fontSize = 12.sp, color = AppColors.TextSecondary)
+                            Text("₹${"%,d".format(balance)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Total P&L", fontSize = 12.sp, color = AppColors.TextSecondary)
+                            Text(
+                                "₹${"%,d".format(totalPnL)}", 
+                                fontSize = 20.sp, 
+                                fontWeight = FontWeight.Bold, 
+                                color = if (totalPnL >= 0) AppColors.Green else AppColors.Red
+                            )
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(20.dp))
+        }
+
+        if (openTrades.isNotEmpty()) {
+            item {
+                Text("Open Positions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                Spacer(Modifier.height(8.dp))
+            }
+            items(openTrades) { trade ->
+                VirtualTradeRow(trade)
+                Spacer(Modifier.height(8.dp))
+            }
+            item { Spacer(Modifier.height(12.dp)) }
         }
         
-        items(logs) { log ->
-            val isError = log.contains("❌") || log.contains("STOP")
-            val isSuccess = log.contains("✅") || log.contains("Success")
-            Text(
-                log,
-                fontSize = 12.sp,
-                color = when {
-                    isError -> AppColors.Red
-                    isSuccess -> AppColors.Green
-                    else -> AppColors.TextSecondary
-                },
-                modifier = Modifier.padding(vertical = 2.dp)
-            )
+        item {
+            Text("Trade History", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+            Spacer(Modifier.height(8.dp))
         }
+        
+        items(history) { trade ->
+            VirtualTradeRow(trade)
+            Spacer(Modifier.height(8.dp))
+        }
+        
         item { Spacer(Modifier.height(20.dp)) }
     }
 }
 
-// ===== BACKTEST TAB (With Chart) =====
 @Composable
-fun BacktestTab() {
+fun VirtualTradeRow(trade: com.vedx.vedxsuper.trade.VirtualTrade) {
+    val isBuy = trade.action == "BUY"
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AppColors.CardBg),
+        border = BorderStroke(1.dp, AppColors.Border)
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(32.dp).clip(CircleShape)
+                    .background(if (isBuy) AppColors.GreenLight else AppColors.RedLight),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (isBuy) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    null,
+                    tint = if (isBuy) AppColors.Green else AppColors.Red,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(trade.symbol, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                Text("${trade.action} • ${trade.quantity} Qty", fontSize = 11.sp, color = AppColors.TextSecondary)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                if (trade.status == com.vedx.vedxsuper.trade.TradeStatus.OPEN) {
+                    Text("OPEN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AppColors.Blue)
+                    Text("₹${"%.1f".format(trade.entryPrice)}", fontSize = 13.sp, color = AppColors.TextPrimary)
+                } else {
+                    Text(
+                        if (trade.pnl >= 0) "+₹${"%,d".format(trade.pnl)}" else "-₹${"%,d".format(abs(trade.pnl))}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (trade.pnl >= 0) AppColors.Green else AppColors.Red
+                    )
+                    Text("Exit: ₹${"%.1f".format(trade.exitPrice)}", fontSize = 11.sp, color = AppColors.TextMuted)
+                }
+            }
+        }
+    }
+}
+
+// ===== BACKTEST TAB =====
+@Composable
+fun BacktestTab(vm: BacktestViewModel) {
+    val result by vm.result.collectAsState()
     var running by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<FakeResult?>(null) }
     
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text("Strategy Backtest", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+        Text("AI Strategy Backtest", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
         Spacer(Modifier.height(12.dp))
         
         Button(
-            onClick = { running = true; result = generateFakeResult() },
+            onClick = { 
+                running = true
+                vm.runBacktest("NIFTY", 5)
+            },
             enabled = !running,
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Blue)
         ) {
-            Text(if (running) "Analyzing..." else "Run 7-ST Backtest", fontWeight = FontWeight.Bold)
+            Text(if (running) "Analyzing Historical Data..." else "Run 7-ST Backtest", fontWeight = FontWeight.Bold)
         }
         
         Spacer(Modifier.height(16.dp))
         
-        result?.let { r ->
+        if (result.totalTrades > 0 || running) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatBox("Win Rate", "${r.winRate}%", AppColors.Green, Modifier.weight(1f))
-                StatBox("Profit F.", "${r.profitFactor}x", AppColors.Blue, Modifier.weight(1f))
+                StatBox("Win Rate", "${result.winRate}%", AppColors.Green, Modifier.weight(1f))
+                StatBox("Trades", "${result.totalTrades}", AppColors.Blue, Modifier.weight(1f))
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatBox("Max DD", "${r.maxDD}%", AppColors.Red, Modifier.weight(1f))
-                StatBox("Sharpe", r.sharpe, AppColors.Purple, Modifier.weight(1f))
+                StatBox("Max DD", "₹${result.maxDrawdown}", AppColors.Red, Modifier.weight(1f))
+                StatBox("Sharpe", "%.2f".format(result.sharpeRatio), AppColors.Purple, Modifier.weight(1f))
             }
             
             Spacer(Modifier.height(16.dp))
-            Text("Equity Curve", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextSecondary)
+            Text("Backtest Results", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.TextSecondary)
             Spacer(Modifier.height(8.dp))
             
             Card(
-                modifier = Modifier.fillMaxWidth().height(160.dp),
+                modifier = Modifier.fillMaxWidth().height(80.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = AppColors.CardBg),
                 border = BorderStroke(1.dp, AppColors.Border)
             ) {
-                EquityChart(r.equity)
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Net P&L: ₹${"%,d".format(result.totalPnL)}",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (result.totalPnL >= 0) AppColors.Green else AppColors.Red
+                    )
+                }
             }
-            
-            Spacer(Modifier.height(16.dp))
-            Text("Trades: ${r.trades} | Net P&L: ₹${r.pnl}", fontSize = 13.sp, color = AppColors.TextSecondary)
+        } else {
+            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                Text("Run backtest to see AI performance stats", color = AppColors.TextMuted, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -610,7 +590,14 @@ fun EquityChart(data: List<Float>) {
 
 // ===== SETTINGS TAB =====
 @Composable
-fun SettingsTab(vm: VedxVM) {
+fun SettingsTab(vm: SettingsViewModel) {
+    val context = LocalContext.current
+    val app = VedxApp.instance
+    val settings = app.settingsManager
+    val darkMode by settings.darkMode.collectAsState()
+    val notifEnabled by settings.notificationsEnabled.collectAsState()
+    val timeframe by settings.analysisTimeframe.collectAsState()
+
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("Settings", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
         Spacer(Modifier.height(16.dp))
@@ -618,11 +605,53 @@ fun SettingsTab(vm: VedxVM) {
         SettingCard {
             SettingItem("Strategy", "7-ST Match + Any Band Reversal", Icons.Default.Info)
             HorizontalDivider(color = AppColors.Border, thickness = 0.5.dp)
-            SettingItem("Risk Mode", "Conservative (Max 3 Losses)", Icons.Default.Lock)
+            
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Settings, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Dark Mode", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
+                    Text(if (darkMode) "Enabled" else "Disabled", fontSize = 12.sp, color = AppColors.TextMuted)
+                }
+                Switch(darkMode, { settings.setDarkMode(it) })
+            }
+            
             HorizontalDivider(color = AppColors.Border, thickness = 0.5.dp)
-            SettingItem("Timeframe", "15 Minutes", Icons.Default.Refresh)
+            
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Notifications, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Trade Alerts", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
+                    Text(if (notifEnabled) "Instant" else "Silent", fontSize = 12.sp, color = AppColors.TextMuted)
+                }
+                Switch(notifEnabled, { settings.setNotificationsEnabled(it) })
+            }
+
+            HorizontalDivider(color = AppColors.Border, thickness = 0.5.dp)
+            SettingItem("Timeframe", timeframe, Icons.Default.Refresh)
         }
         
+        Spacer(Modifier.height(12.dp))
+        
+        Text("Virtual Trading", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary, modifier = Modifier.padding(vertical = 8.dp))
+        SettingCard {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Star, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Reset Everything", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
+                    Text("Restore balance & clear history", fontSize = 12.sp, color = AppColors.TextMuted)
+                }
+                TextButton(onClick = { vm.resetAll() }) {
+                    Text("RESET", color = AppColors.Blue, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
         
         Card(
@@ -635,19 +664,19 @@ fun SettingsTab(vm: VedxVM) {
                 Text("Danger Zone", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppColors.Red)
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { vm.emergency() },
+                    onClick = { VedxApp.instance.ultraNeuralCore.emergencyStop() },
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.Red)
                 ) {
-                    Icon(Icons.Default.Clear, null, modifier = Modifier.size(18.dp))
+                    Icon(imageVector = Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("EMERGENCY STOP", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = {
-                        VedxApp.instance.getSharedPreferences("v", 0).edit().clear().apply()
+                        VedxApp.instance.secureTokenManager.clearSession()
                     },
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(10.dp),
@@ -691,6 +720,13 @@ fun SettingItem(title: String, subtitle: String, icon: androidx.compose.ui.graph
         }
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
     }
+}
+
+// ===== VIEW MODEL (LEGACY - WILL BE REMOVED) =====
+class VedxVM : ViewModel() {
+    val app = VedxApp.instance
+    // Kept to avoid breaking references temporarily
+    fun hasValidSession(): Boolean = app.secureTokenManager.hasValidSession()
 }
 
 // ===== FAKE RESULT FOR UI DEMO =====

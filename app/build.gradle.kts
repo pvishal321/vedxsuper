@@ -1,8 +1,8 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("kotlin-kapt")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    kotlin("kapt") // ✅ ADDED - Room sathi must aahe
 }
 
 android {
@@ -45,7 +45,14 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    kapt(libs.room.compiler)
+    kapt(libs.room.compiler) // ✅ Room annotation processor
     implementation(libs.coroutines)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    
+    // Security & Biometric
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.biometric:biometric:1.1.0")
+    
+    // DataStore (optional, for settings)
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 }

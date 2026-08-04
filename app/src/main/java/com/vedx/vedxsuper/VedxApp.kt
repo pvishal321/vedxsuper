@@ -5,40 +5,72 @@ import android.content.*
 import android.os.*
 import androidx.core.app.NotificationCompat
 import com.vedx.vedxsuper.api.AngelClient
+import com.vedx.vedxsuper.auth.AutoLoginManager
+import com.vedx.vedxsuper.auth.BiometricAuthManager
+import com.vedx.vedxsuper.broker.SecureTokenManager
 import com.vedx.vedxsuper.core.*
 import com.vedx.vedxsuper.data.*
+import com.vedx.vedxsuper.notification.TradeNotificationManager
+import com.vedx.vedxsuper.repository.TradeRepository
 import com.vedx.vedxsuper.stream.FastTickEngine
+import com.vedx.vedxsuper.trade.VirtualTradeManager
+import com.vedx.vedxsuper.utils.SettingsManager
 import kotlinx.coroutines.*
 
 class VedxApp : Application() {
-    lateinit var core: UltraNeuralCore 
-    lateinit var client: AngelClient
-    lateinit var risk: RiskEngine
-    lateinit var engine: FastTickEngine
-    lateinit var db: AppDB
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    lateinit var secureTokenManager: SecureTokenManager
+    lateinit var angelClient: AngelClient
+    lateinit var appDatabase: AppDB
+    lateinit var virtualTradeManager: VirtualTradeManager
+    lateinit var settingsManager: SettingsManager
+    lateinit var tradeNotificationManager: TradeNotificationManager
+    lateinit var ultraNeuralCore: UltraNeuralCore
+    lateinit var autoLoginManager: AutoLoginManager
+    lateinit var biometricAuthManager: BiometricAuthManager
     
+    // Infrastructure needed for background processing
+    lateinit var engine: FastTickEngine
+    lateinit var tradeRepository: TradeRepository
+    lateinit var risk: RiskEngine
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         instance = this
-        db = AppDB.get(this)
-        core = UltraNeuralCore(Symbol("NIFTY"))
-        client = AngelClient()
-        risk = RiskEngine()
+
+        // Initialize all components
+        secureTokenManager = SecureTokenManager(this)
+        secureTokenManager.migrateFromLegacyPrefs(this)
+
+        angelClient = AngelClient()
+        angelClient.isPaperTrading = true // FORCE PAPER TRADING ONLY
+
+        appDatabase = AppDB.get(this)
+        virtualTradeManager = VirtualTradeManager(this)
+        settingsManager = SettingsManager(this)
+        tradeNotificationManager = TradeNotificationManager(this)
+        ultraNeuralCore = UltraNeuralCore(Symbol("NIFTY"))
+        autoLoginManager = AutoLoginManager(this, secureTokenManager, angelClient)
+        biometricAuthManager = BiometricAuthManager(this, secureTokenManager)
         
-        val prefs = getSharedPreferences("v", 0)
-        val tok = prefs.getString("tok", null)
-        val cc = prefs.getString("cc", "") ?: ""
+        tradeRepository = TradeRepository(appDatabase.td())
+        risk = RiskEngine()
+
+        val tok = secureTokenManager.getJwtToken()
+        val cc = secureTokenManager.getClientCode() ?: ""
         if (tok != null) {
-            client.token = tok
-            engine = FastTickEngine(tok, cc, core, scope)
+            angelClient.token = tok
+            engine = FastTickEngine(tok, cc, ultraNeuralCore, scope)
             startService()
         }
     }
     
     fun startService() = startForegroundService(Intent(this, VedxService::class.java))
-    
-    companion object { lateinit var instance: VedxApp }
+
+    companion object {
+        lateinit var instance: VedxApp
+    }
 }
 
 class VedxService : Service() {
@@ -62,24 +94,45 @@ class VedxService : Service() {
         app.engine.connect()
         
         scope.launch {
-            app.core.signals.collect { sigs ->
+            app.ultraNeuralCore.signals.collect { sigs ->
                 sigs.lastOrNull()?.let { s ->
-                    if (s.isEntry && app.risk.canTrade(s.entryPrice.cents * s.quantity, s.stopLoss.cents)) {
-                        app.risk.onEntry(s.entryPrice.cents * s.quantity)
-                        val tok = if (s.symbol.value.contains("BANKNIFTY")) "26009" else "26000"
-                        if (s.action == Actions.BUY) app.client.buy(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
-                        else app.client.sell(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
-                        notify("🎯 ${s.symbol.value}", "${s.reason} | Conf:${s.confidence.pct}%")
+                    if (s.isEntry) {
+                        // Send notification for confirmation (Paper Trade)
+                        app.tradeNotificationManager.sendPreTradeNotification(
+                            s.symbol.value, 
+                            if (s.action == Actions.BUY) "BUY" else "SELL",
+                            s.entryPrice.rupees,
+                            s.stopLoss.rupees,
+                            s.target.rupees,
+                            s.confidence.pct,
+                            s.reason
+                        )
+
+                        if (app.risk.canTrade(s.entryPrice.cents * s.quantity, s.stopLoss.cents)) {
+                            app.risk.onEntry(s.entryPrice.cents * s.quantity)
+                            
+                            if (s.action == Actions.BUY) {
+                                app.virtualTradeManager.executeVirtualBuy(
+                                    s.symbol.value, s.entryPrice.rupees, s.quantity,
+                                    s.stopLoss.rupees, s.target.rupees, s.confidence.pct, s.reason
+                                )
+                            } else if (s.action == Actions.SELL) {
+                                app.virtualTradeManager.executeVirtualSell(
+                                    s.symbol.value, s.entryPrice.rupees, s.quantity,
+                                    s.stopLoss.rupees, s.target.rupees, s.confidence.pct, s.reason
+                                )
+                            }
+                            
+                            val tok = if (s.symbol.value.contains("BANKNIFTY")) "26009" else "26000"
+                            if (!app.angelClient.isPaperTrading) {
+                                if (s.action == Actions.BUY) app.angelClient.buy(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
+                                else app.angelClient.sell(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-    
-    private fun notify(t: String, m: String) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(System.currentTimeMillis().toInt(), NotificationCompat.Builder(this, "v")
-            .setContentTitle(t).setContentText(m).setSmallIcon(android.R.drawable.ic_dialog_info).build())
     }
     
     override fun onBind(i: Intent?) = null
