@@ -1,6 +1,6 @@
 package com.vedx.vedxsuper.stream
 
-import com.vedx.vedxsuper.core.NeuralCore
+import com.vedx.vedxsuper.core.UltraNeuralCore
 import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 class FastTickEngine(
     private val token: String,
     private val clientCode: String,
-    private val core: NeuralCore,
+    private val core: UltraNeuralCore,
     private val scope: CoroutineScope
 ) {
     private val client = OkHttpClient.Builder()

@@ -20,8 +20,20 @@ data class LoginReq(val clientcode: String, val password: String, val totp: Stri
 data class LoginResp(@SerializedName("jwtToken") val token: String, @SerializedName("refreshToken") val refresh: String)
 data class OrderReq(val variety: String, val tradingsymbol: String, val symboltoken: String, val transactiontype: String, val exchange: String, val ordertype: String, val producttype: String, val duration: String, val price: String, val squareoff: String, val stoploss: String, val quantity: String)
 data class OrderResp(val orderid: String, val status: String)
-data class CandleReq(val exchange: String, val symboltoken: String, val interval: String, val fromdate: String, val todate: String)
-data class CandleResp(val data: List<List<Any>>?)
+
+data class CandleReq(
+    val exchange: String = "NSE",
+    val symboltoken: String = "99926000",
+    val interval: String = "ONE_MINUTE",
+    val fromdate: String,
+    val todate: String
+)
+data class CandleResp(
+    val data: List<List<Any>>?, 
+    val status: Boolean = false, 
+    val errorcode: String? = null, 
+    val message: String? = null
+)
 
 class AngelClient {
     private val api: AngelApi = Retrofit.Builder()

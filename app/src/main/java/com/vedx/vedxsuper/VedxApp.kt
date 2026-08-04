@@ -9,10 +9,9 @@ import com.vedx.vedxsuper.core.*
 import com.vedx.vedxsuper.data.*
 import com.vedx.vedxsuper.stream.FastTickEngine
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
 
 class VedxApp : Application() {
-    lateinit var core: NeuralCore
+    lateinit var core: UltraNeuralCore 
     lateinit var client: AngelClient
     lateinit var risk: RiskEngine
     lateinit var engine: FastTickEngine
@@ -23,7 +22,7 @@ class VedxApp : Application() {
         super.onCreate()
         instance = this
         db = AppDB.get(this)
-        core = NeuralCore(Symbol("NIFTY"))
+        core = UltraNeuralCore(Symbol("NIFTY"))
         client = AngelClient()
         risk = RiskEngine()
         
@@ -47,7 +46,6 @@ class VedxService : Service() {
     override fun onCreate() {
         super.onCreate()
         
-        // Create notification channel for Android O+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("v", "Vedx", NotificationManager.IMPORTANCE_LOW)
             val nm = getSystemService(NotificationManager::class.java)
@@ -55,8 +53,8 @@ class VedxService : Service() {
         }
 
         startForeground(1, NotificationCompat.Builder(this, "v")
-            .setContentTitle("VedxSuper AI")
-            .setContentText("Neural Core Active")
+            .setContentTitle("VedxSuper AI Pro")
+            .setContentText("7-ST Match Strategy Active")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .build())
         
@@ -71,7 +69,7 @@ class VedxService : Service() {
                         val tok = if (s.symbol.value.contains("BANKNIFTY")) "26009" else "26000"
                         if (s.action == Actions.BUY) app.client.buy(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
                         else app.client.sell(s.symbol.value, tok, s.quantity, s.entryPrice.rupees, s.stopLoss.rupees)
-                        notify("SIGNAL: ${s.symbol.value}", s.reason)
+                        notify("🎯 ${s.symbol.value}", "${s.reason} | Conf:${s.confidence.pct}%")
                     }
                 }
             }
