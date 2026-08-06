@@ -5,6 +5,10 @@ plugins {
     kotlin("kapt") // ✅ ADDED - Room sathi must aahe
 }
 
+kapt {
+    correctErrorTypes = true
+}
+
 android {
     namespace = "com.vedx.vedxsuper"
     compileSdk = 35
@@ -55,4 +59,7 @@ dependencies {
     
     // DataStore (optional, for settings)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
 }

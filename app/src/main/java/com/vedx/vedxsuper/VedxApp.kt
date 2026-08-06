@@ -30,7 +30,7 @@ class VedxApp : Application() {
     lateinit var biometricAuthManager: BiometricAuthManager
     
     // Infrastructure needed for background processing
-    lateinit var engine: FastTickEngine
+    var engine: FastTickEngine? = null
     lateinit var tradeRepository: TradeRepository
     lateinit var risk: RiskEngine
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -91,7 +91,7 @@ class VedxService : Service() {
             .build())
         
         val app = application as VedxApp
-        app.engine.connect()
+        app.engine?.connect()
         
         scope.launch {
             app.ultraNeuralCore.signals.collect { sigs ->
@@ -137,14 +137,26 @@ class VedxService : Service() {
     
     override fun onBind(i: Intent?) = null
     override fun onDestroy() {
-        (application as VedxApp).engine.disconnect()
+        val app = application as VedxApp
+        app.engine?.disconnect()
         scope.cancel()
     }
 }
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        if (c.getSharedPreferences("v", 0).getString("tok", null) != null)
-            c.startForegroundService(Intent(c, VedxService::class.java))
+        val secureTokenManager = SecureTokenManager(c)
+        if (secureTokenManager.hasValidSession()) {
+            val app = c.applicationContext as VedxApp
+            val tok = secureTokenManager.getJwtToken()
+            val cc = secureTokenManager.getClientCode() ?: ""
+            if (tok != null) {
+                app.angelClient.token = tok
+                if (app.engine == null) {
+                    app.engine = FastTickEngine(tok, cc, app.ultraNeuralCore, app.scope)
+                }
+                c.startForegroundService(Intent(c, VedxService::class.java))
+            }
+        }
     }
 }

@@ -116,7 +116,7 @@ class VirtualTradeManager(context: Context) {
         _openTrades.value = _openTrades.value + trade
         incrementTradeCount()
 
-        notificationManager.sendTradeExecutedNotification(symbol, "SELL", entryPrice, quantity)
+        notificationManager.sendTradeExecutedNotification(symbol, "BUY", entryPrice, quantity)
 
         return trade
     }
