@@ -102,24 +102,31 @@ class AngelDataFetcher(private val tokenProvider: () -> String) {
         return try {
             val resp = api.candles(CandleReq(fromdate = from, todate = to))
             if (!resp.isSuccessful) return Result.failure(IOException("Angel API Error: ${resp.code()} ${resp.errorBody()?.string()}"))
-            val data = resp.body()?.data ?: return Result.success(emptyList())
             
-            val candles = data.mapNotNull { row ->
-                if (row.size < 6) return@mapNotNull null
+            val body = resp.body()
+            if (body == null || body.status == false || body.data == null || !body.data.isJsonArray) {
+                return Result.failure(IOException("Angel API Error: ${body?.message ?: "Unknown response structure"}"))
+            }
+            
+            val dataArray = body.data.asJsonArray
+            val candles = mutableListOf<Candle>()
+            
+            for (i in 0 until dataArray.size()) {
+                val row = dataArray.get(i).asJsonArray
+                if (row.size() < 6) continue
                 try {
-                    val ts = parseAngelTs(row[0].toString())
-                    val open = row[1].toString().toDouble()
-                    val high = row[2].toString().toDouble()
-                    val low = row[3].toString().toDouble()
-                    val close = row[4].toString().toDouble()
-                    val vol = row[5].toString().toDouble().toLong()
-                    Candle(Price.from(open), Price.from(high), Price.from(low), Price.from(close), vol, ts, true)
+                    val ts = parseAngelTs(row.get(0).asString)
+                    val open = row.get(1).asDouble
+                    val high = row.get(2).asDouble
+                    val low = row.get(3).asDouble
+                    val close = row.get(4).asDouble
+                    val vol = row.get(5).asLong
+                    candles.add(Candle(Price.from(open), Price.from(high), Price.from(low), Price.from(close), vol, ts, true))
                 } catch (e: Exception) {
                     Log.e("AngelDataFetcher", "Parsing error in row: $row", e)
-                    null
                 }
-            }.sortedBy { it.timestamp }
-            Result.success(candles)
+            }
+            Result.success(candles.sortedBy { it.timestamp })
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -131,12 +131,12 @@ class MarketFeedEngine(
     }
 
     private fun subscribeIndices() {
-        // Nifty, BankNifty, FinNifty, MidcapNifty (NSE)
-        val nseIndices = listOf("26000", "26009", "26037", "26074")
+        // Nifty, BankNifty (NSE) - include both short and 999-prefixed tokens
+        val nseIndices = listOf("26000", "99926000", "26009", "99926009")
         sendSubscribeRequest(nseIndices, 1)
         
-        // Sensex, Bankex (BSE)
-        val bseIndices = listOf("19000", "19003")
+        // Sensex (BSE) - include both short and 999-prefixed tokens
+        val bseIndices = listOf("19000", "99919000")
         sendSubscribeRequest(bseIndices, 3) // exchangeType 3 for BSE_CM
     }
 
@@ -162,7 +162,9 @@ class MarketFeedEngine(
         val j = JSONObject().apply {
             put("action", 1)
             put("params", JSONObject().apply {
-                put("mode", 1)
+                // Mode 2 (Quote) for Indices, Mode 3 (Snap Quote) for Options
+                val mode = if (exchangeType == 1 || exchangeType == 3) 2 else 3
+                put("mode", mode)
                 put("tokenList", JSONArray().apply {
                     put(JSONObject().apply {
                         put("exchangeType", exchangeType)
@@ -177,56 +179,54 @@ class MarketFeedEngine(
     private fun parse(data: ByteArray) {
         try {
             val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-            while (buf.remaining() >= 27) { // Min header size: mode(1) + exch(1) + token(25)
+            while (buf.remaining() >= 27) {
+                val packetStart = buf.position()
                 val mode = buf.get().toInt() and 0xFF
                 val exchange = buf.get().toInt() and 0xFF
                 val tokenBytes = ByteArray(25)
                 buf.get(tokenBytes)
                 val tokenStr = String(tokenBytes).trim { it <= ' ' || it.code == 0 }
 
-                if (tokenStr.isEmpty()) break
-
-                when (mode) {
-                    1 -> { // LTP (31 bytes total)
-                        if (buf.remaining() >= 4) {
-                            val ltp = (buf.getInt().toLong() and 0xFFFFFFFFL) / 100.0
-                            processTick(tokenStr, ltp, 0)
-                        } else break
-                    }
-                    2 -> { // Quote (110 bytes total)
-                        if (buf.remaining() >= 83) {
-                            val ltp = (buf.getInt().toLong() and 0xFFFFFFFFL) / 100.0
-                            buf.getInt() // ltq
-                            buf.getInt() // atp
-                            val volume = buf.getInt().toLong() and 0xFFFFFFFFL
-                            buf.position(buf.position() + 67)
-                            processTick(tokenStr, ltp, volume)
-                        } else break
-                    }
-                    3 -> { // Snapquote (227 bytes total)
-                        if (buf.remaining() >= 200) {
-                            val ltp = (buf.getInt().toLong() and 0xFFFFFFFFL) / 100.0
-                            buf.getInt() // ltq
-                            buf.getInt() // atp
-                            val volume = buf.getInt().toLong() and 0xFFFFFFFFL
-                            buf.position(buf.position() + 184)
-                            processTick(tokenStr, ltp, volume)
-                        } else break
-                    }
-                    else -> break
+                if (tokenStr.isEmpty()) {
+                    Log.w(TAG, "Malformed packet: empty token, skipping one byte")
+                    if (buf.remaining() > 0) buf.position(buf.position() + 1)
+                    continue
                 }
+
+                val packetSize = when (mode) {
+                    1 -> 51
+                    2 -> 123
+                    3 -> 379
+                    else -> -1
+                }
+
+                if (packetSize < 0) {
+                    Log.w(TAG, "Unknown packet mode $mode for token $tokenStr, skipping one byte")
+                    if (buf.remaining() > 0) buf.position(buf.position() + 1)
+                    continue
+                }
+
+                if (buf.remaining() < packetSize - 27) {
+                    Log.w(TAG, "Incomplete packet mode $mode for token $tokenStr, expected $packetSize bytes, remaining ${buf.remaining()}")
+                    break
+                }
+
+                // Angel One SmartAPI LTP is located at byte offset 43 in the fixed binary packet.
+                val ltp = (buf.getInt(packetStart + 43).toLong() and 0xFFFFFFFFL) / 100.0
+                buf.position(packetStart + packetSize)
+                processTick(tokenStr, ltp, 0L, hasChange = false)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Parse error: ${e.message}")
+            Log.e(TAG, "Parse error: ${e.message}", e)
         }
     }
 
-    private fun processTick(token: String, ltp: Double, volume: Long) {
+    private fun processTick(token: String, ltp: Double, volume: Long, oi: Long = 0L, change: Double = 0.0, changePct: Double = 0.0, hasChange: Boolean = true) {
         if (ltp <= 0) return
-        if (lastLtpMap[token] == ltp && volume == 0L) return
+        if (lastLtpMap[token] == ltp && volume == 0L && oi == 0L) return
         lastLtpMap[token] = ltp
 
-        val tick = TickData(token, ltp, volume, System.currentTimeMillis())
+        val tick = TickData(token, ltp, volume, System.currentTimeMillis(), oi = oi, change = change, changePct = changePct, hasChange = hasChange)
         _ticks.tryEmit(tick)
         eventBus.tryPublish(SystemEvent.TickReceived(tick))
     }

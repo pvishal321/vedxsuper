@@ -3,6 +3,7 @@ package com.vedx.vedxsuper.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,7 @@ fun SettingsScreen(
     onClearHistory: () -> Unit,
     onSyncAll: () -> Unit,
     onEmergencyExit: () -> Unit,
+    onReconnectFeed: () -> Unit,
     onLogout: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -71,6 +73,24 @@ fun SettingsScreen(
             title = "Risk Per Trade (%)",
             value = uiState.riskPerTrade,
             onValueChange = { viewModel.setRiskPerTrade(it) }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== APP CONTROL =====
+        Text("App Control", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        AppControlCard(
+            marketConnected = uiState.marketConnected,
+            niftyStatus = uiState.niftyStatus,
+            niftyPrice = uiState.niftyPrice,
+            bankNiftyStatus = uiState.bankNiftyStatus,
+            bankNiftyPrice = uiState.bankNiftyPrice,
+            sensexStatus = uiState.sensexStatus,
+            sensexPrice = uiState.sensexPrice,
+            onReconnectFeed = onReconnectFeed,
+            onValidateIndexData = { viewModel.validateIndexData() }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -153,8 +173,10 @@ fun SettingsScreen(
             Text("Logout Session", color = Color.Gray, fontWeight = FontWeight.SemiBold)
         }
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(24.dp))
     }
+
+    Spacer(modifier = Modifier.height(40.dp))
 
     // Add Funds Dialog
     if (showAddFundsDialog) {
@@ -199,6 +221,61 @@ fun SettingsScreen(
             amountText = amountText,
             onAmountChange = { amountText = it }
         )
+    }
+}
+
+@Composable
+fun AppControlCard(
+    marketConnected: Boolean,
+    niftyStatus: String,
+    niftyPrice: Double,
+    bankNiftyStatus: String,
+    bankNiftyPrice: Double,
+    sensexStatus: String,
+    sensexPrice: Double,
+    onReconnectFeed: () -> Unit,
+    onValidateIndexData: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color.LightGray)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Market Status", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(
+                        if (marketConnected) "Connected" else "Disconnected",
+                        fontSize = 12.sp,
+                        color = if (marketConnected) Color(0xFF16A34A) else Color(0xFFDC2626)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionButton(text = "🔌 Reconnect Feed", onClick = onReconnectFeed, color = Color(0xFF4CAF50))
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            IndexStatusRow("NIFTY", niftyStatus, niftyPrice)
+            Spacer(modifier = Modifier.height(8.dp))
+            IndexStatusRow("BANKNIFTY", bankNiftyStatus, bankNiftyPrice)
+            Spacer(modifier = Modifier.height(8.dp))
+            IndexStatusRow("SENSEX", sensexStatus, sensexPrice)
+            Spacer(modifier = Modifier.height(16.dp))
+            ActionButton(text = "✅ Validate Index Data", onClick = onValidateIndexData, color = Color(0xFF2196F3))
+        }
+    }
+}
+
+@Composable
+fun IndexStatusRow(symbol: String, status: String, price: Double) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column {
+            Text(symbol, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text("Price: ₹${String.format(Locale.US, "%.2f", price)}", fontSize = 11.sp, color = Color.Gray)
+        }
+        Text(status, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (status == "Live") Color(0xFF16A34A) else Color(0xFFDC2626))
     }
 }
 

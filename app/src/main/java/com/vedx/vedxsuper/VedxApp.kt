@@ -112,10 +112,11 @@ class VedxApp : Application() {
                     audit = auditEngine,
                     analytics = analyticsEngine,
                     eventBus = eventBus,
-                    stateStore = appStateStore
+                    stateStore = appStateStore,
+                    optionDataManager = optionDataManager
                 )
                 
-                ultraNeuralCore = UltraNeuralCore(Symbol("NIFTY"), services)
+                ultraNeuralCore = UltraNeuralCore(services)
 
                 val wsManager = object : BrokerAuthManagerV2.WebSocketManager {
                     override suspend fun validateAuth() = true
@@ -132,7 +133,10 @@ class VedxApp : Application() {
                             startService()
                         }
                     }
-                    override suspend fun subscribeToIndices() {}
+                    override suspend fun subscribeToIndices() {
+                        // Subscribe to NIFTY, BANKNIFTY (NSE) and SENSEX (BSE)
+                        // This is already done in marketFeedEngine.connect() -> resubscribe()
+                    }
                     override suspend fun subscribeToOptions() {}
                     override suspend fun unsubscribeAll() {}
                     override suspend fun disconnectFeed() { if(this@VedxApp::marketFeedEngine.isInitialized) marketFeedEngine.disconnect() }

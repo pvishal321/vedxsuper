@@ -227,7 +227,10 @@ data class TickData(
     val bid: Double = 0.0,
     val ask: Double = 0.0,
     val oi: Long = 0L,
-    val iv: Double = 0.0
+    val iv: Double = 0.0,
+    val change: Double = 0.0,
+    val changePct: Double = 0.0,
+    val hasChange: Boolean = true
 )
 
 // ===== OI Analysis =====

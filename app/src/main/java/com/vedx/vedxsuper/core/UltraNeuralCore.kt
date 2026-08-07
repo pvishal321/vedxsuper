@@ -28,30 +28,51 @@ data class CoreServices(
     val audit: AuditEngine,
     val analytics: AnalyticsEngine,
     val eventBus: EventBus,
-    val stateStore: AppStateStore
+    val stateStore: AppStateStore,
+    val optionDataManager: OptionDataManager
 )
 
 /**
  * V5 UltraNeuralCore (System Orchestrator)
  */
 class UltraNeuralCore(
-    private val indexSymbol: Symbol,
     private val services: CoreServices
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val indexCandles1m = CandleEngine(1)
-    private val indexCandles15m = CandleEngine(15)
-    val indexCandlesFlow = indexCandles15m.candles
+    // Candle engines for 3 Indices
+    private val candlesMap = mapOf(
+        "NIFTY" to CandleEngine(15),
+        "BANKNIFTY" to CandleEngine(15),
+        "SENSEX" to CandleEngine(15)
+    )
 
-    private val indexST = SuperTrendEngine()
-    private val _indexSTResult = MutableStateFlow<MultiST?>(null)
-    val indexSTResult = _indexSTResult.asStateFlow()
+    // ST Engines for 3 Indices
+    private val stMap = mapOf(
+        "NIFTY" to SuperTrendEngine(),
+        "BANKNIFTY" to SuperTrendEngine(),
+        "SENSEX" to SuperTrendEngine()
+    )
+
+    // Latest ST Results for all indices
+    private val _indexSTResults = MutableStateFlow<Map<String, MultiST>>(emptyMap())
+    val indexSTResults = _indexSTResults.asStateFlow()
+
+    // Legacy support for single flow (defaults to NIFTY)
+    val indexCandlesFlow = candlesMap["NIFTY"]!!.candles
+    val indexSTResult = indexSTResults.map { it["NIFTY"] }.stateIn(scope, SharingStarted.Lazily, null)
+
+    fun getIndexCandles(symbol: String): StateFlow<List<Candle>> {
+        return candlesMap[symbol]?.candles ?: indexCandlesFlow
+    }
+
+    fun getIndexST(symbol: String): Flow<MultiST?> {
+        return indexSTResults.map { it[symbol] }
+    }
 
     private class OptState(
         val candles: CandleEngine = CandleEngine(15),
         val st: SuperTrendEngine = SuperTrendEngine(),
-        // Audit 2.4: Using ArrayDeque for efficient sliding window
         val oiHistory: ArrayDeque<OIPoint> = ArrayDeque(101)
     )
     private data class OIPoint(val oi: Long, val price: Double, val ts: Long)
@@ -88,6 +109,8 @@ class UltraNeuralCore(
         }
     }
 
+    private val INDEX_KEYS = setOf("NIFTY", "BANKNIFTY", "SENSEX")
+
     private fun observeEvents() {
         services.eventBus.events.onEach { event ->
             when (event) {
@@ -95,7 +118,7 @@ class UltraNeuralCore(
                 is SystemEvent.SignalGenerated -> {
                     services.audit.logSignal(event.signal)
                     emit(event.signal)
-                    services.virtualTrade.executeSignal(event.signal, 500_000.0)
+                    services.virtualTrade.executeSignal(event.signal)
                 }
                 is SystemEvent.TradeClosed -> {
                     services.analytics.recordTrade(event.trade.matchedBand, event.pnl, System.currentTimeMillis() - event.trade.entryTime)
@@ -106,50 +129,91 @@ class UltraNeuralCore(
     }
 
     private fun handleTick(tick: TickData) {
-        val symbolKey = when (tick.symbol) {
-            "26000", "NIFTY" -> "NIFTY"
-            "26009", "BANKNIFTY" -> "BANKNIFTY"
-            "26037", "FINNIFTY" -> "FINNIFTY"
-            "26074", "MIDCPNIFTY" -> "MIDCPNIFTY"
-            "19000", "SENSEX" -> "SENSEX"
-            "19003", "BANKEX" -> "BANKEX"
+        val normalizedSymbol = normalizeToken(tick.symbol)
+        val symbolKey = when (normalizedSymbol) {
+            "26000", "99926000", "NIFTY" -> "NIFTY"
+            "26009", "99926009", "BANKNIFTY" -> "BANKNIFTY"
+            "19000", "99919000", "SENSEX" -> "SENSEX"
             else -> tick.symbol
         }
 
-        // Update Global State LTP for Dashboard
-        services.stateStore.updateMarket { m -> 
-            val newMap = m.lastLtp.toMutableMap()
-            newMap[symbolKey] = tick.ltp
-            m.copy(lastLtp = newMap)
-        }
-
-        // Core Processing for Primary Index
-        if (symbolKey == indexSymbol.value) {
+        // Update Global State LTP
+        if (symbolKey in INDEX_KEYS) {
+            services.stateStore.updateMarket { m -> 
+                val newLtp = m.lastLtp.toMutableMap()
+                val newChange = m.lastChange.toMutableMap()
+                val newChangePct = m.lastChangePct.toMutableMap()
+                
+                newLtp[symbolKey] = tick.ltp
+                if (tick.hasChange) {
+                    newChange[symbolKey] = tick.change
+                    newChangePct[symbolKey] = tick.changePct
+                }
+                
+                m.copy(lastLtp = newLtp, lastChange = newChange, lastChangePct = newChangePct)
+            }
             onIndexTick(symbolKey, tick.ltp, tick.volume, tick.ts)
-        } else if (tick.symbol !in listOf("26000", "26009", "26037", "26074", "19000", "19003")) {
-            // Option Processing for tokens that are not main indices
-            onOptionTick(tick.symbol, tick.ltp, tick.volume, tick.ts, getIndexPrice(), tick.oi)
+        } else if (symbolKey !in setOf("NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCPNIFTY", "BANKEX")) {
+            // Option Processing
+            val inst = services.optionDataManager.getInstrumentByToken(normalizedSymbol)
+            
+            // Sync Option Price to StateStore
+            inst?.let { i ->
+                services.stateStore.updateMarket { m ->
+                    val newLtp = m.lastLtp.toMutableMap()
+                    val newChange = m.lastChange.toMutableMap()
+                    val newChangePct = m.lastChangePct.toMutableMap()
+                    
+                    newLtp[i.symbol] = tick.ltp
+                    if (tick.hasChange) {
+                        newChange[i.symbol] = tick.change
+                        newChangePct[i.symbol] = tick.changePct
+                    }
+                    
+                    m.copy(lastLtp = newLtp, lastChange = newChange, lastChangePct = newChangePct)
+                }
+            }
+
+            val underlying = when {
+                inst?.name?.contains("BANKNIFTY", true) == true -> "BANKNIFTY"
+                inst?.name?.contains("SENSEX", true) == true -> "SENSEX"
+                else -> "NIFTY"
+            }
+            onOptionTick(tick.symbol, tick.ltp, tick.volume, tick.ts, getIndexPrice(underlying), tick.oi, underlying)
+        }
+    }
+
+    private fun normalizeToken(token: String): String {
+        val trimmed = token.trim()
+        return if (trimmed.all { it.isDigit() } && trimmed.length > 1) {
+            trimmed.trimStart('0').ifEmpty { "0" }
+        } else {
+            trimmed
         }
     }
 
     fun onIndexTick(symbol: String, ltp: Double, vol: Long, ts: Long) {
-        if (symbol != indexSymbol.value) return
+        val engine = candlesMap[symbol] ?: return
         val tick = TickData(symbol, ltp, vol, ts)
-        indexCandles1m.onTick(tick)
-        indexCandles15m.onTick(tick)
+        engine.onTick(tick)
 
-        val c15 = indexCandles15m.candles.value
-        if (c15.size >= 200) {
-            val stRes = indexST.calculate(c15)
-            _indexSTResult.value = stRes
-            stRes?.let { 
-                services.context.updateContext(it.adx, it.master.trend, it.bullCount, it.bearCount, it.isCompressed)
-                services.stateStore.updateMarket { m -> m.copy(indexST = it) }
+        val candles = engine.candles.value
+        if (candles.size >= 200) {
+            val stRes = stMap[symbol]?.calculate(candles)
+            if (stRes != null) {
+                val results = _indexSTResults.value.toMutableMap()
+                results[symbol] = stRes
+                _indexSTResults.value = results
+                
+                if (symbol == "NIFTY") { // Default context from Nifty
+                    services.context.updateContext(stRes.adx, stRes.master.trend, stRes.bullCount, stRes.bearCount, stRes.isCompressed)
+                    services.stateStore.updateMarket { m -> m.copy(indexST = stRes) }
+                }
             }
         }
     }
 
-    fun onOptionTick(symbol: String, ltp: Double, vol: Long, ts: Long, idxPrice: Double, oi: Long = 0L) {
+    fun onOptionTick(symbol: String, ltp: Double, vol: Long, ts: Long, idxPrice: Double, oi: Long = 0L, underlying: String = "NIFTY") {
         val tick = TickData(symbol, ltp, vol, ts, oi = oi)
         val state = options.getOrPut(symbol) { OptState() }
         
@@ -164,7 +228,7 @@ class UltraNeuralCore(
         }
         
         val optST = state.st.calculate(optCandles) ?: return
-        val idxST = _indexSTResult.value ?: return
+        val idxST = _indexSTResults.value[underlying] ?: _indexSTResults.value["NIFTY"] ?: return
 
         scope.launch {
             val oiAnalysis = analyzeOI(state.oiHistory.toList())
@@ -191,8 +255,6 @@ class UltraNeuralCore(
     }
 
     private fun isExpiry(symbol: String): Boolean {
-        // Simple logic for now: check if today is Thursday for NIFTY/BANKNIFTY
-        // In production, this would use optionDataManager expiry dates
         val calendar = java.util.Calendar.getInstance()
         return calendar.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.THURSDAY
     }
@@ -200,7 +262,6 @@ class UltraNeuralCore(
     private fun cleanupExpiredOptions() {
         val now = System.currentTimeMillis()
         val toRemove = options.keys.filter { symbol ->
-            // Logic: If no tick received for 24 hours, remove from map
             val state = options[symbol]
             val lastTickTs = state?.oiHistory?.lastOrNull()?.ts ?: 0L
             (now - lastTickTs) > 86_400_000 // 24 hours
@@ -232,10 +293,10 @@ class UltraNeuralCore(
     fun onMarketBreadthUpdate(b: MarketBreadth) = services.context.updateBreadth(b)
 
     fun initialize(history: List<Candle>) {
-        indexCandles15m.initialize(history)
+        candlesMap["NIFTY"]?.initialize(history)
     }
 
-    fun getIndexPrice() = indexCandles1m.candles.value.lastOrNull()?.close?.rupees ?: 0.0
+    fun getIndexPrice(symbol: String = "NIFTY") = candlesMap[symbol]?.candles?.value?.lastOrNull()?.close?.rupees ?: candlesMap["NIFTY"]?.candles?.value?.lastOrNull()?.close?.rupees ?: 0.0
     fun getOptionCandles(symbol: String) = options[symbol]?.candles?.candles?.value ?: emptyList()
     
     fun cleanup() { scope.cancel() }

@@ -18,6 +18,8 @@ class AppStateStore {
 
     data class MarketState(
         val lastLtp: Map<String, Double> = emptyMap(),
+        val lastChange: Map<String, Double> = emptyMap(),
+        val lastChangePct: Map<String, Double> = emptyMap(),
         val indexST: MultiST? = null,
         val context: MarketContext? = null
     )

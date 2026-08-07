@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.vedx.vedxsuper.auth.SecureTokenManagerV2
 import com.vedx.vedxsuper.core.TradingConstants
 import com.vedx.vedxsuper.core.UltraNeuralCore
+import com.vedx.vedxsuper.core.market.MarketFeedEngine
 import com.vedx.vedxsuper.core.portfolio.PortfolioEngine
 import com.vedx.vedxsuper.core.state.AppStateStore
 import com.vedx.vedxsuper.core.trade.VirtualTradeEngine
@@ -28,7 +29,8 @@ class MarketViewModel(
     private val tokenManager: SecureTokenManagerV2,
     private val notificationManager: TradeNotificationManager,
     private val stateStore: AppStateStore,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val marketFeedEngine: MarketFeedEngine
 ) : ViewModel() {
 
     val appState = stateStore.state
@@ -36,8 +38,36 @@ class MarketViewModel(
     private val _selectedSymbol = MutableStateFlow("NIFTY")
     val selectedSymbol = _selectedSymbol.asStateFlow()
 
-    private val _indexData = MutableStateFlow<List<IndexData>>(emptyList())
-    val indexData = _indexData.asStateFlow()
+    private val niftyPrice = ultraNeuralCore.getIndexCandles("NIFTY")
+        .map { it.lastOrNull()?.close?.rupees ?: 0.0 }
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
+
+    private val bankNiftyPrice = ultraNeuralCore.getIndexCandles("BANKNIFTY")
+        .map { it.lastOrNull()?.close?.rupees ?: 0.0 }
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
+
+    private val sensexPrice = ultraNeuralCore.getIndexCandles("SENSEX")
+        .map { it.lastOrNull()?.close?.rupees ?: 0.0 }
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0.0)
+
+    val indexData = combine(appState, niftyPrice, bankNiftyPrice, sensexPrice) { state, nifty, bank, sensex ->
+        val niftyLtp = state.market.lastLtp["NIFTY"]?.takeIf { it > 0 } ?: nifty
+        val bankNiftyLtp = state.market.lastLtp["BANKNIFTY"]?.takeIf { it > 0 } ?: bank
+        val sensexLtp = state.market.lastLtp["SENSEX"]?.takeIf { it > 0 } ?: sensex
+
+        val niftyChg = state.market.lastChange["NIFTY"] ?: 0.0
+        val niftyPct = state.market.lastChangePct["NIFTY"] ?: 0.0
+        val bankNiftyChg = state.market.lastChange["BANKNIFTY"] ?: 0.0
+        val bankNiftyPct = state.market.lastChangePct["BANKNIFTY"] ?: 0.0
+        val sensexChg = state.market.lastChange["SENSEX"] ?: 0.0
+        val sensexPct = state.market.lastChangePct["SENSEX"] ?: 0.0
+
+        listOf(
+            IndexData("NIFTY", niftyLtp, niftyChg, niftyPct),
+            IndexData("BANKNIFTY", bankNiftyLtp, bankNiftyChg, bankNiftyPct),
+            IndexData("SENSEX", sensexLtp, sensexChg, sensexPct)
+        )
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val signals = ultraNeuralCore.signals
     val indexSTLevels = ultraNeuralCore.indexSTResult
@@ -51,17 +81,8 @@ class MarketViewModel(
     private val multiTrendCache = mutableMapOf<String, StateFlow<MultiTrendState?>>()
 
     init {
-        // Sync index data from stateStore
+        // Sync market analysis from stateStore. Index data is derived from both app state and candle prices.
         appState.onEach { state ->
-            _indexData.value = listOf(
-                IndexData("NIFTY 50", state.market.lastLtp["NIFTY"] ?: 0.0, 0.0, 0.0),
-                IndexData("BANK NIFTY", state.market.lastLtp["BANKNIFTY"] ?: 0.0, 0.0, 0.0),
-                IndexData("FIN NIFTY", state.market.lastLtp["FINNIFTY"] ?: 0.0, 0.0, 0.0),
-                IndexData("MIDCAP", state.market.lastLtp["MIDCPNIFTY"] ?: 0.0, 0.0, 0.0),
-                IndexData("SENSEX", state.market.lastLtp["SENSEX"] ?: 0.0, 0.0, 0.0),
-                IndexData("BANKEX", state.market.lastLtp["BANKEX"] ?: 0.0, 0.0, 0.0)
-            )
-
             state.market.indexST?.let { st ->
                 _marketAnalysis.value = _marketAnalysis.value.copy(
                     regime = st.regime,
@@ -95,7 +116,12 @@ class MarketViewModel(
     }
 
     fun logout() { viewModelScope.launch { tokenManager.clearAll() } }
-    fun reconnectFeed() { viewModelScope.launch { _events.emit("🔄 Reconnecting market feed...") } }
+    fun reconnectFeed() {
+        viewModelScope.launch {
+            marketFeedEngine.connect()
+            _events.emit("🔄 Reconnecting market feed...")
+        }
+    }
 
     fun selectSymbol(symbol: String) {
         _selectedSymbol.value = symbol
@@ -107,7 +133,6 @@ class MarketViewModel(
     fun syncAllHistory() {
         viewModelScope.launch {
             _events.emit("🔄 Syncing trade history...")
-            // portfolio is already synced in init
         }
     }
     
@@ -120,17 +145,12 @@ class MarketViewModel(
 
     fun getMultiTrendState(symbol: String): StateFlow<MultiTrendState?> {
         return multiTrendCache.getOrPut(symbol) {
-            if (symbol == "NIFTY") {
-                combine(ultraNeuralCore.indexCandlesFlow, ultraNeuralCore.indexSTResult) { candles, st ->
-                    MultiTrendState(candles, st)
-                }.stateIn(viewModelScope, SharingStarted.Lazily, null)
-            } else {
-                MutableStateFlow<MultiTrendState?>(null).asStateFlow()
-            }
+            combine(ultraNeuralCore.indexCandlesFlow, ultraNeuralCore.indexSTResult) { candles, st ->
+                MultiTrendState(candles, st)
+            }.stateIn(viewModelScope, SharingStarted.Lazily, null)
         }
     }
     
     fun onSignalReceived(s: String, a: String, p: Double, sl: Double, t: Double, c: Int, r: String) {
-        // Handle legacy signal bridge if needed
     }
 }

@@ -136,7 +136,8 @@ fun DashboardScreen(
                     onClearHistory = { historyViewModel.clearHistory() },
                     onSyncAll = { marketViewModel.syncAllHistory() },
                     onEmergencyExit = { marketViewModel.emergencyExitAll() },
-                    onLogout = { 
+                    onReconnectFeed = { marketViewModel.reconnectFeed() },
+                    onLogout = {
                         loginViewModel.logout()
                         navController.navigate("login") {
                             popUpTo("dashboard") { inclusive = true }
@@ -197,6 +198,9 @@ fun HomeTab(vm: MarketViewModel, authState: AuthState, onIndexClick: (String) ->
     val signals by vm.signals.collectAsState(initial = emptyList())
     val stLevels by vm.indexSTLevels.collectAsState()
     val analysis by vm.marketAnalysis.collectAsState()
+    val appState by vm.appState.collectAsState()
+    val currentNiftyPrice = indexData.firstOrNull { it.symbol == "NIFTY" }?.price
+        ?: appState.market.lastLtp["NIFTY"] ?: 0.0
     
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -219,7 +223,7 @@ fun HomeTab(vm: MarketViewModel, authState: AuthState, onIndexClick: (String) ->
         // MINI CHART PREVIEW (ST2-ST8)
         item {
             if (stLevels != null) {
-                VisualSTChart(stLevels!!, vm.appState.collectAsState().value.market.lastLtp["NIFTY"] ?: 0.0)
+                VisualSTChart(stLevels!!, currentNiftyPrice)
             }
         }
 
@@ -419,7 +423,12 @@ fun AngelIndexCard(index: IndexData, onClick: () -> Unit) {
         border = BorderStroke(1.dp, AppColors.Border)
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text(index.symbol, fontSize = 11.sp, color = AppColors.TextSecondary, fontWeight = FontWeight.SemiBold)
+            val displayName = when(index.symbol) {
+                "NIFTY" -> "NIFTY 50"
+                "BANKNIFTY" -> "BANK NIFTY"
+                else -> index.symbol
+            }
+            Text(displayName, fontSize = 11.sp, color = AppColors.TextSecondary, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(2.dp))
             Text("₹${"%.2f".format(index.price)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
             
@@ -432,8 +441,9 @@ fun AngelIndexCard(index: IndexData, onClick: () -> Unit) {
                     tint = color,
                     modifier = Modifier.size(14.dp)
                 )
+                val sign = if (isPositive && index.change != 0.0) "+" else ""
                 Text(
-                    "${"%.2f".format(index.change)} (${"%.2f".format(index.changePct)}%)",
+                    "$sign${"%.2f".format(index.change)} ($sign${"%.2f".format(index.changePct)}%)",
                     fontSize = 10.sp,
                     color = color,
                     fontWeight = FontWeight.Bold
@@ -546,8 +556,18 @@ fun BacktestTab(vm: BacktestViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("AI Backtesting", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { vm.runBacktest("NIFTY", 5) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Run 5-Day Historical Validation")
+        Button(
+            onClick = { vm.runBacktest("NIFTY", 5) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !result.isRunning
+        ) {
+            if (result.isRunning) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AppColors.White, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Running Simulation...")
+            } else {
+                Text("Run 5-Day Historical Validation")
+            }
         }
         Spacer(Modifier.height(20.dp))
         if (result.totalTrades > 0) {
@@ -558,6 +578,11 @@ fun BacktestTab(vm: BacktestViewModel) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         AnalysisItem("Win Rate", "${result.winRate}%", AppColors.Green)
                         AnalysisItem("Net P&L", "₹${result.totalPnL}", if(result.totalPnL >= 0) AppColors.Green else AppColors.Red)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        AnalysisItem("Max Drawdown", "${result.maxDrawdown}%", AppColors.Red)
+                        AnalysisItem("Sharpe Ratio", "%.2f".format(result.sharpeRatio), AppColors.Purple)
                     }
                 }
             }

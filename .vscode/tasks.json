@@ -1,0 +1,167 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test parser regression",
+			"type": "shell",
+			"command": "./gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "test parser regression",
+			"type": "shell",
+			"command": "cmd.exe /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && set PATH=%JAVA_HOME%\\bin;%PATH% && cd /d C:\\Users\\pvish\\vedxsuper && gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "test parser regression",
+			"type": "shell",
+			"command": "cmd.exe /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && set PATH=%JAVA_HOME%\\bin;%PATH% && cd /d C:\\Users\\pvish\\vedxsuper && gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "test parser regression",
+			"type": "shell",
+			"command": "$env:JAVA_HOME='C:\\Program Files\\Android\\Android Studio\\jbr'; $env:PATH=\"$env:JAVA_HOME\\bin;$env:PATH\"; Set-Location 'C:\\Users\\pvish\\vedxsuper'; .\\gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "echo test",
+			"type": "shell",
+			"command": "cmd.exe /c \"echo hi\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run market parser test",
+			"type": "shell",
+			"command": "cmd.exe /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && set PATH=%JAVA_HOME%\\bin;%PATH% && cd /d C:\\Users\\pvish\\vedxsuper && gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run market parser test",
+			"type": "shell",
+			"command": "cmd.exe /c \"set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr & set PATH=%JAVA_HOME%\\bin;%PATH% & cd /d C:\\Users\\pvish\\vedxsuper & gradlew.bat :app:testDebugUnitTest --tests com.vedx.vedxsuper.core.market.MarketFeedEngineTest\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run market parser test",
+			"type": "shell",
+			"command": "cmd.exe /c \"C:\\Users\\pvish\\vedxsuper\\verify_test.bat\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run market parser test",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\verify_test.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run batch parser test",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\run_parser_test.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run batch parser test",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\run_parser_test.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run batch parser test",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\run_parser_test.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run batch parser test",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\run_parser_test.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "run assemble debug",
+			"type": "shell",
+			"command": "cmd.exe /c C:\\Users\\pvish\\vedxsuper\\run_assemble_debug.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "cleanup temp files",
+			"type": "shell",
+			"command": "cmd.exe /c del /q C:\\Users\\pvish\\vedxsuper\\verify_test.bat C:\\Users\\pvish\\vedxsuper\\run_parser_test.bat C:\\Users\\pvish\\vedxsuper\\run_assemble_debug.bat",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "check adb devices",
+			"type": "shell",
+			"command": "cmd.exe /c \"adb devices\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "list avds",
+			"type": "shell",
+			"command": "cmd.exe /c \"where emulator && emulator -list-avds\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "where emulator",
+			"type": "shell",
+			"command": "cmd.exe /c \"where emulator\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		}
+	]
+}

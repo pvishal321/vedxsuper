@@ -52,31 +52,43 @@ class OptionDataManager(private val context: Context) {
         try {
             val request = Request.Builder().url(SCRIP_MASTER_URL).build()
             val response = client.newCall(request).execute()
-            val jsonString = response.body?.string() ?: return@withContext false
+            if (!response.isSuccessful) return@withContext false
 
-            val jsonArray = JSONArray(jsonString)
+            val source = response.body?.source() ?: return@withContext false
             val instruments = mutableListOf<ScripInstrument>()
-
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val instrumentType = obj.optString("instrumenttype", "")
-                if (instrumentType == INSTRUMENT_OPTIDX) {
-                    instruments.add(
-                        ScripInstrument(
-                            token = obj.optString("token", ""),
-                            symbol = obj.optString("symbol", ""),
-                            name = obj.optString("name", ""),
-                            expiry = obj.optString("expiry", ""),
-                            strike = obj.optString("strike", "0").toDoubleOrNull() ?: 0.0,
-                            lotSize = obj.optString("lotsize", "0"),
-                            instrumentType = instrumentType,
-                            exchange = obj.optString("exch_seg", ""),
-                            tickSize = obj.optString("tick_size", ""),
-                            tokenType = obj.optString("token_type", "")
-                        )
-                    )
+            
+            // Using GSON for streaming to save memory
+            val reader = com.google.gson.stream.JsonReader(source.inputStream().bufferedReader())
+            reader.beginArray()
+            while (reader.hasNext()) {
+                reader.beginObject()
+                var token = ""; var symbol = ""; var name = ""; var expiry = ""; 
+                var strike = 0.0; var lotSize = ""; var instType = ""; 
+                var exch = ""; var tickSize = ""; var tokenType = ""
+                
+                while (reader.hasNext()) {
+                    when (reader.nextName()) {
+                        "token" -> token = reader.nextString()
+                        "symbol" -> symbol = reader.nextString()
+                        "name" -> name = reader.nextString()
+                        "expiry" -> expiry = reader.nextString()
+                        "strike" -> strike = try { reader.nextString().toDouble() } catch (e: Exception) { 0.0 }
+                        "lotsize" -> lotSize = reader.nextString()
+                        "instrumenttype" -> instType = reader.nextString()
+                        "exch_seg" -> exch = reader.nextString()
+                        "tick_size" -> tickSize = reader.nextString()
+                        "token_type" -> tokenType = reader.nextString()
+                        else -> reader.skipValue()
+                    }
                 }
+                
+                if (instType == INSTRUMENT_OPTIDX) {
+                    instruments.add(ScripInstrument(token, symbol, name, expiry, strike, lotSize, instType, exch, tickSize, tokenType))
+                }
+                reader.endObject()
             }
+            reader.endArray()
+            reader.close()
 
             scripMasterData = instruments
             lastFetchTime = System.currentTimeMillis()
@@ -160,7 +172,17 @@ class OptionDataManager(private val context: Context) {
     }
 
     fun getInstrumentByToken(token: String): ScripInstrument? {
-        return scripMasterData.find { it.token == token }
+        val normalizedQuery = normalizeToken(token)
+        return scripMasterData.find { normalizeToken(it.token) == normalizedQuery }
+    }
+
+    private fun normalizeToken(token: String): String {
+        val trimmed = token.trim()
+        return if (trimmed.all { it.isDigit() } && trimmed.length > 1) {
+            trimmed.trimStart('0').ifEmpty { "0" }
+        } else {
+            trimmed
+        }
     }
 
     fun getExpiries(underlying: String): List<String> {

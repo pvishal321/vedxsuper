@@ -25,10 +25,7 @@ fun OptionChainScreen(viewModel: OptionChainViewModel) {
     val indices = listOf(
         "NIFTY" to "NIFTY 50",
         "BANKNIFTY" to "BANK NIFTY",
-        "FINNIFTY" to "FIN NIFTY",
-        "SENSEX" to "SENSEX",
-        "MIDCPNIFTY" to "MIDCAP",
-        "BANKEX" to "BANKEX"
+        "SENSEX" to "SENSEX"
     )
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {

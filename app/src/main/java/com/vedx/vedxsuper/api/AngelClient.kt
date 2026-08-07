@@ -75,7 +75,7 @@ data class CandleReq(
 )
 
 data class CandleResp(
-    val data: List<List<String>>?,
+    val data: com.google.gson.JsonElement?,
     val status: Boolean = false,
     val errorcode: String? = null,
     val message: String? = null

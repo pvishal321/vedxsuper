@@ -72,9 +72,9 @@ class MainActivity : FragmentActivity() {
                 modelClass.isAssignableFrom(LoginViewModelV2::class.java) -> 
                     LoginViewModelV2(authRepository) as T
                 modelClass.isAssignableFrom(MarketViewModel::class.java) ->
-                    MarketViewModel(app.ultraNeuralCore, app.tradeRepository, app.portfolio, app.virtualTrade, app.secureTokenManagerV2, app.tradeNotificationManager, app.appStateStore, app.settingsManager) as T
+                    MarketViewModel(app.ultraNeuralCore, app.tradeRepository, app.portfolio, app.virtualTrade, app.secureTokenManagerV2, app.tradeNotificationManager, app.appStateStore, app.settingsManager, app.marketFeedEngine) as T
                 modelClass.isAssignableFrom(BacktestViewModel::class.java) ->
-                    BacktestViewModel(app.appDatabase, app.settingsManager) as T
+                    BacktestViewModel(app.appDatabase, app.settingsManager, app.ultraNeuralCore) as T
                 modelClass.isAssignableFrom(DashboardViewModel::class.java) ->
                     DashboardViewModel(app.secureTokenManagerV2, app.portfolio) as T
                 modelClass.isAssignableFrom(TradeViewModel::class.java) ->
@@ -82,9 +82,9 @@ class MainActivity : FragmentActivity() {
                 modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
                     HistoryViewModel(app.portfolio) as T
                 modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
-                    SettingsViewModel(app.settingsManager, app.portfolio) as T
+                    SettingsViewModel(app.settingsManager, app.portfolio, app.appStateStore) as T
                 modelClass.isAssignableFrom(OptionChainViewModel::class.java) ->
-                    OptionChainViewModel(app.optionDataManager, app.marketFeedEngine) as T
+                    OptionChainViewModel(app.optionDataManager, app.marketFeedEngine, app.appStateStore) as T
                 modelClass.isAssignableFrom(ChartViewModel::class.java) ->
                     ChartViewModel(app.ultraNeuralCore, app.appStateStore) as T
                 else -> throw IllegalArgumentException("Unknown ViewModel class")

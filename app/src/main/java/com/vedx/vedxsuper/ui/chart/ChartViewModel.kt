@@ -9,6 +9,7 @@ import com.vedx.vedxsuper.ui.MarketAnalysis
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChartViewModel(
     private val core: UltraNeuralCore,
     private val stateStore: AppStateStore
@@ -33,7 +34,7 @@ class ChartViewModel(
         val st = state.market.indexST
         MarketAnalysis(
             regime = st?.regime ?: Regimes.SIDEWAY,
-            vix = state.system.latencyMs.toDouble(), // Placeholder, replace if vix in state
+            vix = 15.5, // Default VIX
             pcr = 0.95, // Replace with actual PCR logic if needed
             adx = st?.adx ?: 20.0,
             isCompressed = st?.isCompressed ?: false
@@ -41,18 +42,26 @@ class ChartViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), MarketAnalysis())
 
     // Using the flow directly from core
-    val indexCandles: StateFlow<List<Candle>> = core.indexCandlesFlow
+    val indexCandles: StateFlow<List<Candle>> = _selectedIndex.flatMapLatest { 
+        core.getIndexCandles(it.symbol)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
+    val indexST: StateFlow<MultiST?> = _selectedIndex.flatMapLatest { 
+        core.getIndexST(it.symbol)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+
     val signals: StateFlow<List<Signal>> = core.signals
-    val indexST: StateFlow<MultiST?> = core.indexSTResult
 
     private val _optionST = MutableStateFlow<MultiST?>(null)
     val optionST = _optionST.asStateFlow()
 
     init {
-        // Sync current price
-        appState.onEach { state ->
-            val symbol = _selectedIndex.value.symbol
-            _currentPrice.value = state.market.lastLtp[symbol] ?: 0.0
+        // Sync current price from global app state (Reacts to selection changes)
+        combine(appState, _selectedIndex, _selectedOption) { state, index, option ->
+            val symbol = option ?: index.symbol
+            state.market.lastLtp[symbol] ?: 0.0
+        }.onEach { price ->
+            _currentPrice.value = price
         }.launchIn(viewModelScope)
     }
 
@@ -64,16 +73,16 @@ class ChartViewModel(
         _selectedOption.value = symbol
     }
 
+    // Ticks are now handled globally by UltraNeuralCore via EventBus
     fun onIndexTick(ltp: Double, volume: Long, timestamp: Long) {
-        viewModelScope.launch {
-            core.onIndexTick(_selectedIndex.value.symbol, ltp, volume, timestamp)
-            _currentPrice.value = ltp
-        }
+        _currentPrice.value = ltp
     }
 
     fun onOptionTick(symbol: String, ltp: Double, volume: Long, timestamp: Long) {
         viewModelScope.launch {
-            core.onOptionTick(symbol, ltp, volume, timestamp, _currentPrice.value)
+            // Determine underlying for option ST calculation
+            val underlying = if (symbol.contains("BANKNIFTY")) "BANKNIFTY" else if (symbol.contains("SENSEX")) "SENSEX" else "NIFTY"
+            core.onOptionTick(symbol, ltp, volume, timestamp, _currentPrice.value, underlying = underlying)
             val optCandles = core.getOptionCandles(symbol)
             if (optCandles.size >= 15) {
                 val engine = com.vedx.vedxsuper.core.strategy.SuperTrendEngine()
@@ -88,14 +97,11 @@ class ChartViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        // Note: Core is global now, don't cleanup here unless intended
     }
 
     enum class IndianIndex(val displayName: String, val symbol: String) {
         NIFTY_50("Nifty 50", "NIFTY"),
         BANKNIFTY("Bank Nifty", "BANKNIFTY"),
-        FINNIFTY("FinNifty", "FINNIFTY"),
-        MIDCAP_100("Nifty Midcap 100", "NIFTYMIDCAP"),
         SENSEX("Sensex", "SENSEX")
     }
 }
