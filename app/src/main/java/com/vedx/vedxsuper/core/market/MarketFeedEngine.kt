@@ -48,6 +48,9 @@ class MarketFeedEngine(
 
     private val lastLtpMap = java.util.concurrent.ConcurrentHashMap<String, Double>()
 
+    private val _connectionState = MutableStateFlow(false)
+    val connectionState = _connectionState.asStateFlow()
+
     private val _ticks = MutableSharedFlow<TickData>(
         extraBufferCapacity = 1000,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
@@ -81,6 +84,7 @@ class MarketFeedEngine(
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         Log.i(TAG, "WebSocket Connected Successfully")
                         isConnected = true
+                        _connectionState.value = true
                         reconnectAttempt = 0
                         resubscribe()
                     }
@@ -101,6 +105,7 @@ class MarketFeedEngine(
                 })
             } catch (e: Exception) {
                 Log.e(TAG, "Connect error", e)
+                _connectionState.value = false
                 handleDisconnect()
             }
         }
@@ -108,6 +113,7 @@ class MarketFeedEngine(
 
     private fun handleDisconnect() {
         isConnected = false
+        _connectionState.value = false
         ws = null
         val delayMs = calculateBackoffDelay(reconnectAttempt++)
         connectJob?.cancel()
@@ -235,6 +241,7 @@ class MarketFeedEngine(
         ws?.close(1000, "Normal closure")
         ws = null
         isConnected = false
+        _connectionState.value = false
         connectJob?.cancel()
     }
 }

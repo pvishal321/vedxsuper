@@ -92,6 +92,13 @@ class MarketViewModel(
             }
         }.launchIn(viewModelScope)
 
+        marketFeedEngine.connectionState
+            .onEach { connected ->
+                stateStore.updateSystem { it.copy(isConnected = connected) }
+            }
+            .launchIn(viewModelScope)
+    }
+
         viewModelScope.launch {
             signals.collect { sigList ->
                 sigList.lastOrNull()?.let { signal ->

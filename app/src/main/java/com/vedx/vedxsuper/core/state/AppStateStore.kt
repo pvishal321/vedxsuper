@@ -55,4 +55,8 @@ class AppStateStore {
     fun updatePortfolio(transform: (PortfolioState) -> PortfolioState) {
         _state.update { it.copy(portfolio = transform(it.portfolio)) }
     }
+
+    fun updateSystem(transform: (SystemHealth) -> SystemHealth) {
+        _state.update { it.copy(system = transform(it.system)) }
+    }
 }

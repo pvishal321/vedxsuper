@@ -93,7 +93,7 @@ fun DashboardScreen(
     
     Scaffold(
         containerColor = AppColors.Background,
-        topBar = { V5Header(authState) },
+        topBar = { V5Header(authState, marketViewModel.marketConnected) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar(
@@ -150,7 +150,7 @@ fun DashboardScreen(
 }
 
 @Composable
-fun V5Header(authState: AuthState) {
+fun V5Header(authState: AuthState, marketConnected: Boolean) {
     Surface(
         color = AppColors.White,
         modifier = Modifier.fillMaxWidth().drawBehind {
@@ -186,7 +186,7 @@ fun V5Header(authState: AuthState) {
                 Text("RECORDING", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = AppColors.TextSecondary)
             }
             Spacer(Modifier.width(12.dp))
-            ConnectionBadge(authState)
+            ConnectionBadge(marketConnected)
         }
     }
 }
@@ -454,11 +454,11 @@ fun AngelIndexCard(index: IndexData, onClick: () -> Unit) {
 }
 
 @Composable
-fun ConnectionBadge(status: AuthState) {
-    val (text, color, bgColor) = when (status) {
-        is AuthState.Authenticated -> Triple("LIVE", AppColors.Green, AppColors.GreenLight)
-        is AuthState.Checking, is AuthState.Refreshing -> Triple("SYNC", AppColors.Orange, AppColors.BlueLight)
-        else -> Triple("OFF", AppColors.Red, AppColors.RedLight)
+fun ConnectionBadge(isConnected: Boolean) {
+    val (text, color, bgColor) = if (isConnected) {
+        Triple("LIVE", AppColors.Green, AppColors.GreenLight)
+    } else {
+        Triple("OFFLINE", AppColors.Red, AppColors.RedLight)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
