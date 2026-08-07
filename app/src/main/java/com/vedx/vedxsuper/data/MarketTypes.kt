@@ -1,102 +1,28 @@
 package com.vedx.vedxsuper.data
 
 import androidx.compose.runtime.Immutable
+import java.math.BigDecimal
 import kotlin.math.abs
 
-// ===== VALUE CLASSES (Zero overhead) =====
-@JvmInline value class Symbol(val value: String)
-@JvmInline value class Price(val cents: Int) { 
-    val rupees: Double get() = cents / 100.0 
-    companion object { fun from(r: Double) = Price((r * 100).toInt()) }
-}
-@JvmInline value class BandId(val id: Int)
-@JvmInline value class Confidence(val pct: Int)
-
-// ===== BIT-PACKED STATE (1 Long = full state) =====
-@JvmInline value class MarketState(val bits: Long) {
+@JvmInline
+value class Price(val cents: Int) {
+    val rupees: Double get() = cents / 100.0
     companion object {
-        const val TREND_MASK = 0xFL
-        const val REGIME_MASK = 0xF0L
-        const val STRUCTURE_MASK = 0xF00L
-        const val ZONE_MASK = 0xF000L
-        
-        fun pack(trend: Byte, regime: Byte, structure: Byte, zone: Byte) = MarketState(
-            (trend.toLong() and 0xF) or
-            ((regime.toLong() and 0xF) shl 4) or
-            ((structure.toLong() and 0xF) shl 8) or
-            ((zone.toLong() and 0xF) shl 12)
-        )
+        fun from(rupees: Double) = Price((rupees * 100).toInt())
+        fun from(rupees: BigDecimal) = Price((rupees * BigDecimal(100)).toInt())
     }
-    val trend: Byte get() = (bits and TREND_MASK).toByte()
-    val regime: Byte get() = ((bits and REGIME_MASK) shr 4).toByte()
-    val structure: Byte get() = ((bits and STRUCTURE_MASK) shr 8).toByte()
-    val zone: Byte get() = ((bits and ZONE_MASK) shr 12).toByte()
 }
 
-// ===== TREND STATES =====
-object Trends {
-    const val WAIT: Byte = 0
-    const val BUILDING: Byte = 1
-    const val REVERSAL_SETUP: Byte = 2
-    const val REVERSAL_CONFIRMED: Byte = 3
-    const val SCALP_READY: Byte = 4
-    const val TREND_RUN: Byte = 5
-    const val PULLBACK: Byte = 6
-    const val EXHAUSTED: Byte = 7
-    const val FINISHED: Byte = 8
+@JvmInline
+value class Symbol(val value: String)
+
+@JvmInline
+value class Confidence(val pct: Int) {
+    val score: Int get() = pct
+    val isStrong: Boolean get() = pct >= 75
+    val isValid: Boolean get() = pct >= 60
 }
 
-// ===== REGIMES =====
-object Regimes {
-    const val SIDEWAYS: Byte = 0
-    const val TRENDING_UP: Byte = 1
-    const val TRENDING_DOWN: Byte = 2
-    const val VOLATILE: Byte = 3
-    const val NO_TRADE: Byte = 4
-}
-
-// ===== ACTIONS =====
-object Actions {
-    const val WAIT: Byte = 0
-    const val BUY: Byte = 1
-    const val SELL: Byte = 2
-    const val SCALP: Byte = 3
-    const val EXIT: Byte = 4
-    const val TRAIL: Byte = 5
-    const val PARTIAL: Byte = 6
-    const val NO_TRADE: Byte = 7
-}
-
-// ===== RING BUFFER TICK (No allocation) =====
-class TickRingBuffer(capacity: Int = 1024) {
-    @PublishedApi internal val buf = LongArray(capacity)
-    @PublishedApi internal var head = 0
-    @PublishedApi internal var tail = 0
-    @PublishedApi internal val mask = capacity - 1
-    
-    fun push(priceCents: Int, volume: Int, timestamp: Long, oi: Int) {
-        buf[head] = (priceCents.toLong() and 0xFFFFFFFF) or 
-                    ((volume.toLong() and 0xFFFF) shl 32) or
-                    ((oi.toLong() and 0xFFFF) shl 48)
-        head = (head + 1) and mask
-        if (head == tail) tail = (tail + 1) and mask
-    }
-    
-    inline fun forEachRecent(count: Int, action: (price: Int, vol: Int, oi: Int) -> Unit) {
-        var i = (head - 1) and mask
-        var n = count.coerceAtMost(size())
-        while (n-- > 0) {
-            val v = buf[i]
-            action((v and 0xFFFFFFFF).toInt(), ((v shr 32) and 0xFFFF).toInt(), ((v shr 48) and 0xFFFF).toInt())
-            i = (i - 1) and mask
-        }
-    }
-    
-    fun size() = (head - tail) and mask
-    fun clear() { head = 0; tail = 0 }
-}
-
-// ===== CANDLE (Compact, Immutable) =====
 @Immutable
 data class Candle(
     val open: Price,
@@ -105,76 +31,266 @@ data class Candle(
     val close: Price,
     val volume: Long,
     val timestamp: Long,
-    val isComplete: Boolean = false
+    val isComplete: Boolean = true
 ) {
-    val range: Price get() = Price(abs(close.cents - open.cents))
+    val isBullish: Boolean get() = close.cents >= open.cents
+    val bodySize: Double get() = abs(close.rupees - open.rupees)
+    val range: Double get() = high.rupees - low.rupees
+    val upperShadow: Double get() = high.rupees - kotlin.math.max(open.rupees, close.rupees)
+    val lowerShadow: Double get() = kotlin.math.min(open.rupees, close.rupees) - low.rupees
     val body: Price get() = Price(abs(close.cents - open.cents))
-    val isBullish: Boolean get() = close.cents > open.cents
 }
 
-// ===== SUPER TREND RESULT (Inline calc, no objects) =====
 data class STResult(
-    val value: Double,
-    val upper: Double,
-    val lower: Double,
-    val trend: Byte, // 1 = up, -1 = down
+    val triggerPrice: Double,
+    val upperBand: Double,
+    val lowerBand: Double,
+    val trend: Byte,
     val atr: Double
 )
 
-// ===== MULTI-ST RESULT =====
 data class MultiST(
-    val st2: STResult, val st3: STResult, val st4: STResult,
-    val st5: STResult, val st6: STResult, val st7: STResult, val st8: STResult,
-    val master: STResult
+    val st2: STResult,
+    val st3: STResult,
+    val st4: STResult,
+    val st5: STResult,
+    val st6: STResult,
+    val st7: STResult,
+    val st8: STResult,
+    val master: STResult,
+    val bullCount: Int = 0,
+    val bearCount: Int = 0,
+    val alignmentPct: Double = 0.0,
+    val strongTrend: Boolean = false,
+    val confidenceScore: Double = 0.0,
+    val adx: Double = 0.0,
+    val regime: Regimes = Regimes.SIDEWAY
 ) {
-    val isCompressed: Boolean
-        get() {
-            val all = listOf(st2, st3, st4, st5, st6, st7, st8)
-            val spread = all.maxOf { it.upper } - all.minOf { it.lower }
-            return spread < master.value * 0.08
-        }
-    
-    fun bandList() = doubleArrayOf(st2.value, st3.value, st4.value, st5.value, st6.value, st7.value, st8.value)
+    fun bandList(): DoubleArray = doubleArrayOf(
+        st2.triggerPrice, st3.triggerPrice, st4.triggerPrice,
+        st5.triggerPrice, st6.triggerPrice, st7.triggerPrice, st8.triggerPrice
+    )
+    val isCompressed: Boolean get() {
+        val bands = bandList()
+        val max = bands.maxOrNull() ?: 0.0
+        val min = bands.minOrNull() ?: 0.0
+        return (max - min) / ((max + min) / 2) < 0.005
+    }
 }
 
-// ===== SIGNAL (AI Output) =====
+enum class Actions { BUY, SELL, SCALP, EXIT, TRAIL, PARTIAL, NO_TRADE, WAIT }
+enum class OptionType { CE, PE }
+enum class Regimes { TRENDING_UP, TRENDING_DOWN, SIDEWAY, VOLATILE, BREAKOUT, REVERSAL }
+enum class TradeGrade { AP, A, B, C, REJECT }
+enum class OrderType { MARKET, LIMIT, SL, SLM, BRACKET, COVER }
+
+// ===== Position Sizing =====
+data class PositionSize(
+    val quantity: Int,
+    val lotSize: Int,
+    val lots: Int,
+    val marginRequired: Double,
+    val riskAmount: Double,
+    val riskPerUnit: Double
+)
+
+/**
+ * Audit 4.12: TradePlan returned by RiskEngine
+ */
+data class TradePlan(
+    val approved: Boolean,
+    val symbol: String,
+    val quantity: Int,
+    val lots: Int,
+    val entryPrice: Double,
+    val stopLoss: Double,
+    val target: Double,
+    val trailingSl: Double,
+    val marginRequired: Double,
+    val riskAmount: Double,
+    val charges: TradeCharges = TradeCharges(),
+    val rejectionReason: String = ""
+)
+
+/**
+ * Audit 4.10: Simulation of Brokerage & Taxes
+ */
+data class TradeCharges(
+    val brokerage: Double = 20.0,
+    val stt: Double = 0.0,
+    val exchangeCharges: Double = 0.0,
+    val gst: Double = 0.0,
+    val sebi: Double = 0.0,
+    val total: Double = 20.0
+)
+
+// ===== Risk Limits =====
+data class RiskLimits(
+    val dailyLossLimit: Double = 50_000.0,
+    val dailyTarget: Double = 100_000.0,
+    val maxExposure: Double = 200_000.0,
+    val maxTradesPerDay: Int = 20,
+    val circuitBreakerLoss: Double = 30_000.0,
+    val circuitBreakerTrades: Int = 10
+)
+
+// ===== Greeks =====
+data class OptionGreeks(
+    val delta: Double,
+    val gamma: Double,
+    val theta: Double,
+    val vega: Double,
+    val iv: Double
+)
+
+// ===== Market Breadth =====
+data class MarketBreadth(
+    val advances: Int,
+    val declines: Int,
+    val unchanged: Int,
+    val advanceDeclineRatio: Double,
+    val newHighs: Int,
+    val newLows: Int
+)
+
+// ===== PCR Data =====
+data class PCRData(
+    val pcr: Double,
+    val callOi: Long,
+    val putOi: Long,
+    val callVolume: Long,
+    val putVolume: Long,
+    val maxPain: Double
+)
+
+// ===== Signal with full metadata =====
 @Immutable
 data class Signal(
-    val action: Byte,
+    val action: Actions,
+    val optionType: OptionType,
     val symbol: Symbol,
     val entryPrice: Price,
     val target: Price,
     val stopLoss: Price,
+    val trailingSl: Price? = null,
     val confidence: Confidence,
     val reason: String,
     val timestamp: Long,
-    val quantity: Int = 0,
-    val regime: Byte = Regimes.SIDEWAYS,
-    val zoneMatch: Int = 0
+    val quantity: Int,
+    val lots: Int,
+    val regime: Regimes = Regimes.SIDEWAY,
+    val matchedBand: String = "",
+    val reversalStrength: Double = 0.0,
+    val grade: TradeGrade = TradeGrade.C,
+    val weightedConfidence: Double = 0.0,
+    val greeks: OptionGreeks? = null,
+    val pcrAtSignal: Double = 0.0,
+    val vixAtSignal: Double = 0.0
 ) {
     val isEntry: Boolean get() = action == Actions.BUY || action == Actions.SELL || action == Actions.SCALP
-    val riskReward: Float get() = if (stopLoss.cents > 0) 
-        abs(target.cents - entryPrice.cents).toFloat() / abs(entryPrice.cents - stopLoss.cents).toFloat() 
-    else 0f
 }
 
-// ===== AI WEIGHTS (Mutable only during learning) =====
-data class AIWeights(
-    var trendW: Float = 0.25f,
-    var strengthW: Float = 0.20f,
-    var structureW: Float = 0.20f,
-    var correlationW: Float = 0.15f,
-    var liquidityW: Float = 0.10f,
-    var regimeW: Float = 0.10f
+// ===== Open Position =====
+data class OpenPosition(
+    val id: String,
+    val symbol: Symbol,
+    val optionType: OptionType,
+    val entryPrice: Price,
+    val currentPrice: Price,
+    val quantity: Int,
+    val lots: Int,
+    val target: Price,
+    val stopLoss: Price,
+    val trailingSl: Price?,
+    val mtm: Double,
+    val mtmPct: Double,
+    val entryTime: Long,
+    val greeks: OptionGreeks?,
+    val orderType: OrderType = OrderType.BRACKET
 )
 
-// ===== TRADE JOURNAL (For learning) =====
-data class TradeJournal(
-    val symbol: Symbol,
-    val entryPrice: Price,
-    val exitPrice: Price,
-    val pnl: Price,
-    val timestamp: Long,
-    val wasWin: Boolean,
-    val stateAtEntry: MarketState
+// ===== Margin Info =====
+data class MarginInfo(
+    val totalFund: Double,
+    val usedMargin: Double,
+    val availableMargin: Double,
+    val openPositionsMargin: Double,
+    val dayPnL: Double,
+    val unrealizedPnL: Double
 )
+
+data class TickData(
+    val symbol: String,
+    val ltp: Double,
+    val volume: Long,
+    val ts: Long,
+    val bid: Double = 0.0,
+    val ask: Double = 0.0,
+    val oi: Long = 0L,
+    val iv: Double = 0.0
+)
+
+// ===== OI Analysis =====
+data class OIAnalysis(
+    val symbol: String,
+    val currentOi: Long,
+    val oiChange: Long,
+    val oiChangePct: Double,
+    val priceChange: Double,
+    val interpretation: String // "Long Buildup", "Short Buildup", "Long Unwinding", "Short Covering"
+)
+
+// ===== Volume Profile =====
+data class VolumeProfile(
+    val poc: Double, // Point of Control
+    val valueAreaHigh: Double,
+    val valueAreaLow: Double,
+    val volumeNodes: List<VolumeNode>
+)
+
+data class VolumeNode(val price: Double, val volume: Long)
+
+// ===== Trade Memory for AI Learning =====
+data class TradeMemory(
+    val signal: Signal,
+    val outcome: Double, // PnL
+    val exitReason: String,
+    val marketContext: MarketContext,
+    val timestamp: Long
+)
+
+data class MarketContext(
+    val vix: Double,
+    val pcr: Double,
+    val regime: Regimes,
+    val adx: Double,
+    val marketBreadth: MarketBreadth?
+)
+
+// ===== VIRTUAL TRADE MODELS =====
+data class VirtualTrade(
+    val id: String, // Audit 4.9: UUID String
+    val symbol: String,
+    val action: String, // BUY or SELL
+    val entryPrice: Double,
+    val quantity: Int,
+    var stopLoss: Double, // Var for Audit 4.7 Trailing
+    val target: Double,
+    val confidence: Int,
+    val reason: String,
+    val matchedBand: String = "",
+    val entryTime: Long,
+    val exitPrice: Double = 0.0,
+    val exitTime: Long = 0L,
+    val status: TradeStatus = TradeStatus.OPEN,
+    val pnl: Long = 0L,
+    val charges: Double = 0.0, // Audit 4.10
+    val brokerage: Long = 0L,
+    val exitBrokerage: Long = 0L
+) {
+    val isOpen: Boolean get() = status == TradeStatus.OPEN
+    val totalBrokerage: Long get() = brokerage + exitBrokerage
+    val entryValue: Long get() = (entryPrice * quantity).toLong()
+}
+
+enum class TradeStatus { OPEN, PROFIT, LOSS }

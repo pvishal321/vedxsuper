@@ -1,8 +1,8 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
-    kotlin("kapt") // ✅ ADDED - Room sathi must aahe
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("kotlin-kapt")
 }
 
 kapt {
@@ -12,22 +12,22 @@ kapt {
 android {
     namespace = "com.vedx.vedxsuper"
     compileSdk = 35
-    
+
     defaultConfig {
         applicationId = "com.vedx.vedxsuper"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "3.0-AI-PRO"
+        versionName = "1.0-SuperTrend-Virtual" // Fixed: No AI/Pro in name
     }
-    
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-    
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -49,16 +49,18 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    kapt(libs.room.compiler) // ✅ Room annotation processor
+    kapt(libs.room.compiler)
     implementation(libs.coroutines)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    
-    // Security & Biometric
+
+    // NEW: Security & Biometric
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.biometric:biometric:1.1.0")
-    
-    // DataStore (optional, for settings)
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Phase 3: Validation & Stability
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("io.mockk:mockk:1.13.12")
 
     // Unit Testing
     testImplementation("junit:junit:4.13.2")

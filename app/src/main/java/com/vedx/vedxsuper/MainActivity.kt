@@ -4,87 +4,98 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.vedx.vedxsuper.broker.SecureTokenManager
-import com.vedx.vedxsuper.repository.TradeRepository
 import com.vedx.vedxsuper.ui.*
 import com.vedx.vedxsuper.ui.login.LoginScreen
-import com.vedx.vedxsuper.ui.login.LoginViewModel
-import com.vedx.vedxsuper.utils.SettingsManager
-import com.vedx.vedxsuper.auth.BiometricAuthManager
+import com.vedx.vedxsuper.ui.chart.ChartViewModel
+import com.vedx.vedxsuper.auth.*
+import com.vedx.vedxsuper.auth.AuthState
+import com.vedx.vedxsuper.ui.login.LoginViewModelV2
+import kotlinx.coroutines.delay
 
-class MainActivity : FragmentActivity() { // FragmentActivity for Biometric
+class MainActivity : FragmentActivity() {
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ -> /* Permission handled */ }
+    private val app by lazy { application as VedxApp }
+
+    private val loginViewModel: LoginViewModelV2 by viewModels { factory }
+    private val marketViewModel: MarketViewModel by viewModels { factory }
+    private val backtestViewModel: BacktestViewModel by viewModels { factory }
+    private val dashboardViewModel: DashboardViewModel by viewModels { factory }
+    private val tradeViewModel: TradeViewModel by viewModels { factory }
+    private val historyViewModel: HistoryViewModel by viewModels { factory }
+    private val settingsViewModel: SettingsViewModel by viewModels { factory }
+    private val optionChainViewModel: OptionChainViewModel by viewModels { factory }
+    private val chartViewModel: ChartViewModel by viewModels { factory }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val app = application as VedxApp
-
-        val tokenManager = app.secureTokenManager
-        tokenManager.migrateFromLegacyPrefs(this)
-
-        val db = app.appDatabase
-        val virtualTradeManager = app.virtualTradeManager
-        val settingsManager = app.settingsManager
-        val notificationManager = app.tradeNotificationManager
-
-        // Create ViewModels
-        val loginViewModel = LoginViewModel(app.angelClient, tokenManager, app.autoLoginManager)
-        val marketViewModel = MarketViewModel(
-            ultraNeuralCore = app.ultraNeuralCore,
-            tradeRepository = TradeRepository(db.td()),
-            virtualTradeManager = virtualTradeManager,
-            tokenManager = tokenManager,
-            notificationManager = notificationManager
-        )
-        val backtestViewModel = BacktestViewModel()
-        val dashboardViewModel = DashboardViewModel(tokenManager, virtualTradeManager)
-        val settingsViewModel = SettingsViewModel(settingsManager, virtualTradeManager)
-        val tradeViewModel = TradeViewModel(virtualTradeManager, settingsManager)
-        val historyViewModel = HistoryViewModel(virtualTradeManager)
-
         setContent {
             MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     VedxMainApp(
                         loginViewModel = loginViewModel,
                         marketViewModel = marketViewModel,
                         backtestViewModel = backtestViewModel,
                         dashboardViewModel = dashboardViewModel,
-                        settingsViewModel = settingsViewModel,
                         tradeViewModel = tradeViewModel,
                         historyViewModel = historyViewModel,
-                        tokenManager = tokenManager,
-                        settingsManager = settingsManager,
+                        settingsViewModel = settingsViewModel,
+                        optionChainViewModel = optionChainViewModel,
+                        chartViewModel = chartViewModel,
                         biometricAuthManager = app.biometricAuthManager
                     )
                 }
             }
         }
-
         checkNotificationPermission()
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private val factory = object : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            val authRepository = AuthRepository(app.autoLoginManagerV2, app.secureTokenManagerV2)
+            return when {
+                modelClass.isAssignableFrom(LoginViewModelV2::class.java) -> 
+                    LoginViewModelV2(authRepository) as T
+                modelClass.isAssignableFrom(MarketViewModel::class.java) ->
+                    MarketViewModel(app.ultraNeuralCore, app.tradeRepository, app.portfolio, app.virtualTrade, app.secureTokenManagerV2, app.tradeNotificationManager, app.appStateStore, app.settingsManager) as T
+                modelClass.isAssignableFrom(BacktestViewModel::class.java) ->
+                    BacktestViewModel(app.appDatabase, app.settingsManager) as T
+                modelClass.isAssignableFrom(DashboardViewModel::class.java) ->
+                    DashboardViewModel(app.secureTokenManagerV2, app.portfolio) as T
+                modelClass.isAssignableFrom(TradeViewModel::class.java) ->
+                    TradeViewModel(app.portfolio, app.settingsManager) as T
+                modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
+                    HistoryViewModel(app.portfolio) as T
+                modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
+                    SettingsViewModel(app.settingsManager, app.portfolio) as T
+                modelClass.isAssignableFrom(OptionChainViewModel::class.java) ->
+                    OptionChainViewModel(app.optionDataManager, app.marketFeedEngine) as T
+                modelClass.isAssignableFrom(ChartViewModel::class.java) ->
+                    ChartViewModel(app.ultraNeuralCore, app.appStateStore) as T
+                else -> throw IllegalArgumentException("Unknown ViewModel class")
+            }
+        }
     }
 
     private fun checkNotificationPermission() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
             }
         }
     }
@@ -92,31 +103,44 @@ class MainActivity : FragmentActivity() { // FragmentActivity for Biometric
 
 @Composable
 fun VedxMainApp(
-    loginViewModel: LoginViewModel,
+    loginViewModel: LoginViewModelV2,
     marketViewModel: MarketViewModel,
     backtestViewModel: BacktestViewModel,
     dashboardViewModel: DashboardViewModel,
-    settingsViewModel: SettingsViewModel,
     tradeViewModel: TradeViewModel,
     historyViewModel: HistoryViewModel,
-    tokenManager: SecureTokenManager,
-    settingsManager: SettingsManager,
+    settingsViewModel: SettingsViewModel,
+    optionChainViewModel: OptionChainViewModel,
+    chartViewModel: ChartViewModel,
     biometricAuthManager: BiometricAuthManager
 ) {
     val navController = rememberNavController()
-    val startDest = if (tokenManager.hasValidSession()) "dashboard" else "login"
+    val authState by loginViewModel.authState.collectAsState()
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as VedxApp
+    
+    var isAppReady by remember { mutableStateOf(app.isReady) }
+    
+    LaunchedEffect(Unit) {
+        while(!app.isReady) {
+            delay(100)
+        }
+        isAppReady = true
+    }
+
+    if (!isAppReady) {
+        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    val startDest = if (authState is AuthState.Authenticated) "dashboard" else "login"
 
     NavHost(navController = navController, startDestination = startDest) {
         composable("login") {
-            LoginScreen(
-                viewModel = loginViewModel,
-                biometricAuthManager = biometricAuthManager,
-                onLoginSuccess = {
-                    navController.navigate("dashboard") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-            )
+            LoginScreen(viewModel = loginViewModel, biometricAuthManager = biometricAuthManager, onLoginSuccess = {
+                navController.navigate("dashboard") { popUpTo("login") { inclusive = true } }
+            })
         }
         composable("dashboard") {
             DashboardScreen(
@@ -126,8 +150,11 @@ fun VedxMainApp(
                 settingsViewModel = settingsViewModel,
                 tradeViewModel = tradeViewModel,
                 historyViewModel = historyViewModel,
+                optionChainViewModel = optionChainViewModel,
+                chartViewModel = chartViewModel,
+                loginViewModel = loginViewModel,
                 navController = navController,
-                settingsManager = settingsManager
+                settingsManager = (androidx.compose.ui.platform.LocalContext.current.applicationContext as VedxApp).settingsManager
             )
         }
     }

@@ -21,6 +21,7 @@ class SettingsManager(context: Context) {
         private const val KEY_AUTO_TRADE_CONFIRM = "auto_trade_confirm"
         private const val KEY_DEFAULT_QTY = "default_quantity"
         private const val KEY_RISK_PER_TRADE = "risk_per_trade_pct"
+        private const val KEY_AUTO_START_BOOT = "auto_start_on_boot"
         private const val DEFAULT_TIMEFRAME = "15_MINUTE"
         private const val DEFAULT_QTY = 50
         private const val DEFAULT_RISK = 2 // 2%
@@ -37,7 +38,14 @@ class SettingsManager(context: Context) {
     private val _soundAlerts = MutableStateFlow(prefs.getBoolean(KEY_SOUND_ALERTS, true))
     val soundAlerts: StateFlow<Boolean> = _soundAlerts.asStateFlow()
 
-    private val _analysisTimeframe = MutableStateFlow(prefs.getString(KEY_ANALYSIS_TIMEFRAME, DEFAULT_TIMEFRAME) ?: DEFAULT_TIMEFRAME)
+    private val _analysisTimeframe = MutableStateFlow(
+        try {
+            prefs.getString(KEY_ANALYSIS_TIMEFRAME, DEFAULT_TIMEFRAME) ?: DEFAULT_TIMEFRAME
+        } catch (e: Exception) {
+            prefs.edit { remove(KEY_ANALYSIS_TIMEFRAME) }
+            DEFAULT_TIMEFRAME
+        }
+    )
     val analysisTimeframe: StateFlow<String> = _analysisTimeframe.asStateFlow()
 
     private val _autoTradeConfirm = MutableStateFlow(prefs.getBoolean(KEY_AUTO_TRADE_CONFIRM, false))
@@ -48,6 +56,9 @@ class SettingsManager(context: Context) {
 
     private val _riskPerTrade = MutableStateFlow(prefs.getInt(KEY_RISK_PER_TRADE, DEFAULT_RISK))
     val riskPerTrade: StateFlow<Int> = _riskPerTrade.asStateFlow()
+
+    private val _autoStartOnBoot = MutableStateFlow(prefs.getBoolean(KEY_AUTO_START_BOOT, false))
+    val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
 
     // ===== SETTINGS SETTERS =====
 
@@ -84,6 +95,11 @@ class SettingsManager(context: Context) {
     fun setRiskPerTrade(pct: Int) {
         _riskPerTrade.value = pct
         prefs.edit { putInt(KEY_RISK_PER_TRADE, pct) }
+    }
+
+    fun setAutoStartOnBoot(enabled: Boolean) {
+        _autoStartOnBoot.value = enabled
+        prefs.edit { putBoolean(KEY_AUTO_START_BOOT, enabled) }
     }
 
     // ===== WALLET SETTINGS =====

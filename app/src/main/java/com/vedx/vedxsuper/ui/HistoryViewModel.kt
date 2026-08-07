@@ -2,18 +2,17 @@ package com.vedx.vedxsuper.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.vedx.vedxsuper.trade.VirtualTradeManager
+import com.vedx.vedxsuper.core.portfolio.PortfolioEngine
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class HistoryViewModel(
-    private val virtualTradeManager: VirtualTradeManager
+    private val portfolio: PortfolioEngine
 ) : ViewModel() {
 
-    val allTrades = virtualTradeManager.tradeHistory
+    val allTrades = portfolio.tradeHistory
 
     fun clearHistory() {
-        viewModelScope.launch {
-            virtualTradeManager.clearHistory()
-        }
+        portfolio.resetBalance()
     }
 }

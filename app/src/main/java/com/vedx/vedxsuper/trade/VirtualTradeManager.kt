@@ -2,8 +2,8 @@ package com.vedx.vedxsuper.trade
 
 import android.content.Context
 import androidx.core.content.edit
-import com.vedx.vedxsuper.VedxApp
 import com.vedx.vedxsuper.data.*
+import com.vedx.vedxsuper.notification.TradeNotificationManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,9 +13,10 @@ import kotlin.math.abs
  * Pure Virtual Trading Manager - NO REAL ORDERS
  * Manages paper trading with virtual balance, P&L tracking, and trade history.
  */
-class VirtualTradeManager(context: Context) {
-
-    private val notificationManager get() = VedxApp.instance.tradeNotificationManager
+class VirtualTradeManager(
+    context: Context,
+    private val notificationManager: TradeNotificationManager
+) {
 
     companion object {
         private const val PREFS_NAME = "vedx_virtual_wallet"
@@ -116,7 +117,7 @@ class VirtualTradeManager(context: Context) {
         _openTrades.value = _openTrades.value + trade
         incrementTradeCount()
 
-        notificationManager.sendTradeExecutedNotification(symbol, "BUY", entryPrice, quantity)
+        notificationManager.sendTradeExecutedNotification(symbol, "SELL", entryPrice, quantity)
 
         return trade
     }

@@ -5,11 +5,10 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.vedx.vedxsuper.broker.SecureTokenManager
 
 class BiometricAuthManager(
     private val context: Context,
-    private val tokenManager: SecureTokenManager
+    private val tokenManager: SecureTokenManagerV2
 ) {
 
     fun canAuthenticate(): Boolean {
